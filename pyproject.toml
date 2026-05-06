@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "groundline"
+version = "0.1.0a0"
+description = "Open-source retrieval engine for grounded, citation-ready LLM context."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+  { name = "Groundline contributors" },
+]
+keywords = ["rag", "retrieval", "llm", "citations", "qdrant"]
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "qdrant-client>=1.10",
+  "rank-bm25>=0.2.2",
+  "rich>=13.7",
+  "typer>=0.12",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+embeddings = [
+  "sentence-transformers>=3.0",
+]
+rerank = [
+  "sentence-transformers>=3.0",
+]
+dev = [
+  "black>=24.8",
+  "pytest>=8.3",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+groundline = "groundline.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["groundline"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

@@ -1,0 +1,3 @@
+{"query":"住宿标准","gold_doc_ids":["replace_with_ingested_doc_id"],"query_type":"exact"}
+{"query":"travel reimbursement","gold_doc_ids":["replace_with_ingested_doc_id"],"query_type":"semantic"}
+

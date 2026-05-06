@@ -1,0 +1,2 @@
+"""Object store adapters."""
+

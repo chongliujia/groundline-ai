@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+from pathlib import Path
+from uuid import UUID
+
+from groundline.adapters.embedding.factory import build_embedder
+from groundline.adapters.metadata.sqlite_store import SQLiteMetadataStore
+from groundline.adapters.rerank.factory import build_reranker
+from groundline.adapters.search.bm25_store import InMemoryBM25Store
+from groundline.adapters.vector.qdrant_store import QdrantVectorStore
+from groundline.core.config import Settings
+from groundline.core.errors import (
+    BackendUnavailableError,
+    GroundlineError,
+    ProviderConfigurationError,
+    UnsupportedSourceTypeError,
+)
+from groundline.core.hashing import hash_file
+from groundline.core.ids import new_id
+from groundline.core.schemas import (
+    Chunk,
+    DeleteResponse,
+    Document,
+    DocumentVersion,
+    GroundedContext,
+    IngestedDocument,
+    IngestResponse,
+    QueryResponse,
+    RetrievalHit,
+    SkippedSource,
+    utc_now,
+)
+from groundline.ingestion.chunker import CHUNKER_VERSION, ChunkerConfig, HeadingAwareChunker
+from groundline.ingestion.loader import infer_source_type, iter_local_documents
+from groundline.ingestion.parser import PARSER_VERSION, ParserRegistry
+from groundline.retrieval.context_builder import chunk_to_context
+from groundline.retrieval.fusion import reciprocal_rank_fusion
+from groundline.retrieval.trace import empty_trace
+
+
+class Groundline:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.metadata = SQLiteMetadataStore(settings.resolved_sqlite_path)
+        self.parsers = ParserRegistry()
+        self.providers = settings.providers
+
+    @classmethod
+    def from_local(cls, data_dir: Path = Path(".groundline")) -> Groundline:
+        return cls(Settings(data_dir=data_dir))
+
+    def list_collections(self) -> list[str]:
+        return self.metadata.list_collections()
+
+    def list_documents(
+        self,
+        collection: str,
+        include_inactive: bool = False,
+    ) -> list[Document]:
+        documents = self.metadata.list_documents(collection)
+        if include_inactive:
+            return documents
+        return [document for document in documents if document.is_active]
+
+    def list_chunks(
+        self,
+        collection: str,
+        doc_id: str | None = None,
+        include_inactive: bool = False,
+    ) -> list[Chunk]:
+        chunks = self.metadata.list_chunks(collection)
+        if not include_inactive:
+            chunks = [chunk for chunk in chunks if chunk.is_active and chunk.is_latest]
+        if doc_id is None:
+            return chunks
+        return [chunk for chunk in chunks if chunk.doc_id == doc_id]
+
+    def delete_document(self, collection: str, doc_id: str) -> DeleteResponse:
+        document = self.metadata.get_document(collection, doc_id)
+        if document is None:
+            return DeleteResponse(
+                collection=collection,
+                doc_id=doc_id,
+                deleted=False,
+                reason="document not found",
+            )
+        if not document.is_active:
+            return DeleteResponse(
+                collection=collection,
+                doc_id=doc_id,
+                deleted=False,
+                reason="document already inactive",
+            )
+        chunks_deactivated = self.metadata.tombstone_document(collection, doc_id)
+        return DeleteResponse(
+            collection=collection,
+            doc_id=doc_id,
+            deleted=True,
+            chunks_deactivated=chunks_deactivated,
+        )
+
+    def ingest_path(
+        self,
+        path: Path,
+        collection: str,
+        tenant_id: str = "default",
+        title: str | None = None,
+        doc_type: str | None = None,
+        domain: str | None = None,
+        language: str | None = None,
+        acl_groups: list[str] | None = None,
+        metadata: dict | None = None,
+    ) -> IngestResponse:
+        self.metadata.create_collection(collection)
+        documents: list[IngestedDocument] = []
+        skipped: list[SkippedSource] = []
+
+        for source in iter_local_documents(path):
+            try:
+                ingest_result = self._ingest_file(
+                    source=source,
+                    collection=collection,
+                    tenant_id=tenant_id,
+                    title=title if path.is_file() else None,
+                    doc_type=doc_type,
+                    domain=domain,
+                    language=language,
+                    acl_groups=acl_groups or [],
+                    metadata=metadata or {},
+                )
+                if isinstance(ingest_result, IngestedDocument):
+                    documents.append(ingest_result)
+                else:
+                    skipped.append(ingest_result)
+            except UnsupportedSourceTypeError as error:
+                skipped.append(SkippedSource(source_uri=str(source), reason=str(error)))
+
+        if path.is_file() and not documents and not skipped:
+            raise GroundlineError(f"No supported document found at {path}")
+
+        return IngestResponse(collection=collection, documents=documents, skipped=skipped)
+
+    def _ingest_file(
+        self,
+        source: Path,
+        collection: str,
+        tenant_id: str,
+        title: str | None,
+        doc_type: str | None,
+        domain: str | None,
+        language: str | None,
+        acl_groups: list[str],
+        metadata: dict,
+    ) -> IngestedDocument | SkippedSource:
+        source_uri = str(source)
+        content_hash = hash_file(source)
+        existing_document = self.metadata.get_document_by_source_uri(collection, source_uri)
+        existing_version = (
+            self.metadata.get_version(
+                collection,
+                existing_document.doc_id,
+                existing_document.current_version_id,
+            )
+            if existing_document and existing_document.current_version_id
+            else None
+        )
+        if (
+            existing_document
+            and existing_document.is_active
+            and existing_version
+            and existing_version.is_active
+            and existing_version.content_hash == content_hash
+        ):
+            return SkippedSource(source_uri=source_uri, reason="unchanged content hash")
+
+        doc_id = existing_document.doc_id if existing_document else new_id("doc")
+        version_id = new_id("version")
+        source_type = infer_source_type(source)
+        document_title = (
+            title or existing_document.title if existing_document else title or source.stem
+        )
+
+        document = (
+            existing_document.model_copy(
+                update={
+                    "tenant_id": tenant_id,
+                    "source_type": source_type,
+                    "title": document_title,
+                    "doc_type": doc_type,
+                    "domain": domain,
+                    "language": language,
+                    "current_version_id": version_id,
+                    "is_active": True,
+                    "deleted_at": None,
+                    "acl_groups": acl_groups,
+                    "metadata": {**metadata, "path": source_uri},
+                    "updated_at": utc_now(),
+                }
+            )
+            if existing_document
+            else Document(
+                doc_id=doc_id,
+                tenant_id=tenant_id,
+                source_uri=source_uri,
+                source_type=source_type,
+                title=document_title,
+                doc_type=doc_type,
+                domain=domain,
+                language=language,
+                current_version_id=version_id,
+                acl_groups=acl_groups,
+                metadata={**metadata, "path": source_uri},
+            )
+        )
+        version = DocumentVersion(
+            doc_id=doc_id,
+            version_id=version_id,
+            content_hash=content_hash,
+            parser_version=PARSER_VERSION,
+            chunker_version=CHUNKER_VERSION,
+            supersedes=existing_version.version_id if existing_version else None,
+        )
+
+        blocks = self.parsers.parse(source, doc_id=doc_id, version_id=version_id)
+        chunks = HeadingAwareChunker(
+            ChunkerConfig(
+                tenant_id=tenant_id,
+                title=document_title,
+                doc_type=doc_type,
+                domain=domain,
+                language=language,
+                acl_groups=tuple(acl_groups),
+            )
+        ).chunk(blocks, doc_id=doc_id, version_id=version_id)
+
+        if existing_document:
+            self.metadata.deactivate_versions_for_document(collection, doc_id)
+            self.metadata.deactivate_chunks_for_document(collection, doc_id)
+        self.metadata.put_document(collection, document)
+        self.metadata.put_version(collection, version)
+        self.metadata.put_chunks(collection, chunks)
+        self._try_index_vectors(collection, chunks)
+
+        return IngestedDocument(
+            doc_id=doc_id,
+            version_id=version_id,
+            source_uri=str(source),
+            source_type=source_type,
+            title=document_title,
+            chunk_count=len(chunks),
+        )
+
+    def query(
+        self,
+        collection: str,
+        query: str,
+        tenant_id: str = "default",
+        user_groups: list[str] | None = None,
+        top_k: int = 8,
+        include_trace: bool = False,
+    ) -> QueryResponse:
+        chunks = [
+            chunk
+            for chunk in self.metadata.list_chunks(collection)
+            if chunk.tenant_id == tenant_id
+            and chunk.is_active
+            and chunk.is_latest
+            and self._is_allowed(chunk.acl_groups, user_groups or [])
+        ]
+        search = InMemoryBM25Store()
+        search.index(collection, chunks)
+        bm25_hits = search.search(collection, query, top_k=max(top_k, 20))
+        vector_hits, vector_error = self._try_vector_search(collection, query, top_k=max(top_k, 20))
+        hits = reciprocal_rank_fusion([bm25_hits, vector_hits], top_n=top_k)
+        chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+        doc_by_id = {
+            document.doc_id: document for document in self.metadata.list_documents(collection)
+        }
+        reranked_chunks, rerank_error = self._try_rerank(
+            query,
+            [chunk_by_id[hit.chunk_id] for hit in hits if hit.chunk_id in chunk_by_id],
+        )
+
+        contexts: list[GroundedContext] = []
+        hit_by_chunk_id = {hit.chunk_id: hit for hit in hits}
+        for chunk, rerank_score in reranked_chunks:
+            hit = hit_by_chunk_id.get(chunk.chunk_id)
+            document = doc_by_id.get(chunk.doc_id)
+            context = chunk_to_context(chunk, source_uri=document.source_uri if document else None)
+            if hit is not None:
+                context.scores[f"{hit.source}_score"] = hit.score
+            if rerank_score is not None:
+                context.scores["rerank_score"] = rerank_score
+            contexts.append(context)
+
+        trace = None
+        if include_trace:
+            trace = empty_trace()
+            trace["routing"] = {"collection": collection, "tenant_id": tenant_id}
+            trace["retrieval"] = {
+                "bm25_hits": len(bm25_hits),
+                "vector_hits": len(vector_hits),
+                "candidate_chunks": len(chunks),
+            }
+            if vector_error:
+                trace["retrieval"]["vector_error"] = vector_error
+            trace["fusion"] = {"method": "rrf", "fused_hits": len(hits)}
+            trace["rerank"] = {
+                "enabled": self.providers.rerank.provider.lower() not in {"none", "disabled"},
+                "input_candidates": len(hits),
+                "output_candidates": len(reranked_chunks),
+            }
+            if rerank_error:
+                trace["rerank"]["error"] = rerank_error
+            trace["context"] = {"final_items": len(contexts)}
+
+        return QueryResponse(query=query, contexts=contexts, trace=trace)
+
+    @staticmethod
+    def _is_allowed(chunk_groups: list[str], user_groups: list[str]) -> bool:
+        return not chunk_groups or bool(set(chunk_groups) & set(user_groups))
+
+    def _try_index_vectors(self, collection: str, chunks: list[Chunk]) -> str | None:
+        if not chunks:
+            return None
+        try:
+            embedder = build_embedder(self.providers.embedding)
+            if embedder is None:
+                return "embedding disabled"
+            vectors = embedder.embed([chunk.text_for_embedding for chunk in chunks])
+            store = QdrantVectorStore(
+                url=self.settings.qdrant_url,
+                vector_size=len(vectors[0]),
+            )
+            store.upsert(
+                collection,
+                [
+                    (
+                        self._vector_point_id(chunk.chunk_id),
+                        vector,
+                        {
+                            "chunk_id": chunk.chunk_id,
+                            "doc_id": chunk.doc_id,
+                            "version_id": chunk.version_id,
+                            "tenant_id": chunk.tenant_id,
+                            "title": chunk.title,
+                        },
+                    )
+                    for chunk, vector in zip(chunks, vectors, strict=True)
+                ],
+            )
+            return None
+        except (BackendUnavailableError, ProviderConfigurationError, ImportError) as error:
+            return str(error)
+
+    def _try_vector_search(
+        self,
+        collection: str,
+        query: str,
+        top_k: int,
+    ) -> tuple[list[RetrievalHit], str | None]:
+        try:
+            embedder = build_embedder(self.providers.embedding)
+            if embedder is None:
+                return [], "embedding disabled"
+            vector = embedder.embed([query])[0]
+            store = QdrantVectorStore(
+                url=self.settings.qdrant_url,
+                vector_size=len(vector),
+            )
+            return store.search(collection, vector, top_k=top_k), None
+        except (BackendUnavailableError, ProviderConfigurationError, ImportError) as error:
+            return [], str(error)
+
+    def _try_rerank(
+        self,
+        query: str,
+        candidates: list[Chunk],
+    ) -> tuple[list[tuple[Chunk, float | None]], str | None]:
+        try:
+            reranker = build_reranker(self.providers.rerank)
+            if reranker is None:
+                return [(chunk, None) for chunk in candidates], "rerank disabled"
+            return reranker.rerank(query, candidates), None
+        except (ProviderConfigurationError, ImportError) as error:
+            return [(chunk, None) for chunk in candidates], str(error)
+
+    @staticmethod
+    def _vector_point_id(chunk_id: str) -> str:
+        raw_id = chunk_id.removeprefix("chunk_")
+        try:
+            return str(UUID(hex=raw_id))
+        except ValueError:
+            return str(UUID(bytes=raw_id.encode("utf-8")[:16].ljust(16, b"_")))
