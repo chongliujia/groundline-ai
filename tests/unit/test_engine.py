@@ -23,6 +23,11 @@ def test_engine_ingests_and_queries_markdown(tmp_path: Path) -> None:
     assert result.contexts[0].citation.doc_id == ingest.documents[0].doc_id
     assert result.trace is not None
     assert result.trace["retrieval"]["bm25_hits"] >= 1
+    assert result.trace["retrieval"]["bm25_candidates"][0]["chunk_id"] == result.contexts[
+        0
+    ].chunk_id
+    assert result.trace["fusion"]["candidates"][0]["source"] == "rrf"
+    assert result.trace["context"]["contexts"][0]["chunk_id"] == result.contexts[0].chunk_id
 
 
 def test_engine_skips_reserved_pdf_parser(tmp_path: Path) -> None:
@@ -60,6 +65,7 @@ def test_engine_keyword_rerank_adds_scores(tmp_path: Path) -> None:
     assert "rerank_score" in result.contexts[0].scores
     assert result.trace is not None
     assert result.trace["rerank"]["enabled"] is True
+    assert result.trace["rerank"]["candidates"][0]["score"] is not None
 
 
 def test_engine_query_filters_by_metadata_and_document_fields(tmp_path: Path) -> None:

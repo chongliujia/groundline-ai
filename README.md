@@ -148,6 +148,10 @@ The API uses the same filter object:
 }
 ```
 
+Use `--trace` to inspect retrieval internals. The trace includes routing inputs,
+BM25 candidates, raw and filtered vector candidates, RRF fusion candidates,
+rerank candidates, and the final context list.
+
 Repeated ingest skips unchanged files by `source_uri + content_hash`. Changed files
 reuse the existing `doc_id`, create a new version, and deactivate old chunks.
 

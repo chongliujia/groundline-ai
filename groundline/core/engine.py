@@ -332,12 +332,17 @@ class Groundline:
             and self._is_allowed(chunk.acl_groups, user_groups or [])
             and self._matches_filters(chunk, filters or {})
         ]
+        chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
         search = InMemoryBM25Store()
         search.index(collection, chunks)
         bm25_hits = search.search(collection, query, top_k=max(top_k, 20))
-        vector_hits, vector_error = self._try_vector_search(collection, query, top_k=max(top_k, 20))
+        raw_vector_hits, vector_error = self._try_vector_search(
+            collection,
+            query,
+            top_k=max(top_k, 20),
+        )
+        vector_hits = [hit for hit in raw_vector_hits if hit.chunk_id in chunk_by_id]
         hits = reciprocal_rank_fusion([bm25_hits, vector_hits], top_n=top_k)
-        chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
         doc_by_id = {
             document.doc_id: document for document in self.metadata.list_documents(collection)
         }
@@ -364,24 +369,46 @@ class Groundline:
             trace["routing"] = {
                 "collection": collection,
                 "tenant_id": tenant_id,
+                "user_groups": user_groups or [],
                 "filters": filters or {},
             }
             trace["retrieval"] = {
                 "bm25_hits": len(bm25_hits),
+                "bm25_candidates": self._trace_hits(bm25_hits, chunk_by_id),
+                "vector_hits_raw": len(raw_vector_hits),
                 "vector_hits": len(vector_hits),
+                "vector_candidates": self._trace_hits(vector_hits, chunk_by_id),
                 "candidate_chunks": len(chunks),
             }
             if vector_error:
                 trace["retrieval"]["vector_error"] = vector_error
-            trace["fusion"] = {"method": "rrf", "fused_hits": len(hits)}
+            trace["fusion"] = {
+                "method": "rrf",
+                "fused_hits": len(hits),
+                "candidates": self._trace_hits(hits, chunk_by_id, use_hit_rank=False),
+            }
             trace["rerank"] = {
                 "enabled": self.providers.rerank.provider.lower() not in {"none", "disabled"},
                 "input_candidates": len(hits),
                 "output_candidates": len(reranked_chunks),
+                "candidates": self._trace_reranked_chunks(reranked_chunks),
             }
             if rerank_error:
                 trace["rerank"]["error"] = rerank_error
-            trace["context"] = {"final_items": len(contexts)}
+            trace["context"] = {
+                "final_items": len(contexts),
+                "contexts": [
+                    {
+                        "rank": rank,
+                        "chunk_id": context.chunk_id,
+                        "doc_id": context.doc_id,
+                        "title": context.title,
+                        "section": context.section,
+                        "scores": context.scores,
+                    }
+                    for rank, context in enumerate(contexts, start=1)
+                ],
+            }
 
         return QueryResponse(query=query, contexts=contexts, trace=trace)
 
@@ -420,6 +447,48 @@ class Groundline:
         if isinstance(expected, list):
             return actual in expected
         return actual == expected
+
+    @staticmethod
+    def _trace_hits(
+        hits: list[RetrievalHit],
+        chunk_by_id: dict[str, Chunk],
+        limit: int = 20,
+        use_hit_rank: bool = True,
+    ) -> list[dict[str, object]]:
+        traced: list[dict[str, object]] = []
+        for rank, hit in enumerate(hits[:limit], start=1):
+            chunk = chunk_by_id.get(hit.chunk_id)
+            traced.append(
+                {
+                    "rank": hit.rank if use_hit_rank and hit.rank is not None else rank,
+                    "chunk_id": hit.chunk_id,
+                    "doc_id": chunk.doc_id if chunk else hit.metadata.get("doc_id"),
+                    "title": chunk.title if chunk else hit.metadata.get("title"),
+                    "section": " > ".join(chunk.heading_path)
+                    if chunk and chunk.heading_path
+                    else None,
+                    "source": hit.source,
+                    "score": hit.score,
+                }
+            )
+        return traced
+
+    @staticmethod
+    def _trace_reranked_chunks(
+        reranked_chunks: list[tuple[Chunk, float | None]],
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                "rank": rank,
+                "chunk_id": chunk.chunk_id,
+                "doc_id": chunk.doc_id,
+                "title": chunk.title,
+                "section": " > ".join(chunk.heading_path) if chunk.heading_path else None,
+                "score": score,
+            }
+            for rank, (chunk, score) in enumerate(reranked_chunks[:limit], start=1)
+        ]
 
     def _try_index_vectors(self, collection: str, chunks: list[Chunk]) -> str | None:
         if not chunks:

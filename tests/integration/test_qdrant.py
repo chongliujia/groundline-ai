@@ -55,7 +55,9 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
 
         assert ingest.documents[0].chunk_count >= 1
         assert result.trace is not None
+        assert result.trace["retrieval"]["vector_hits_raw"] > 0
         assert result.trace["retrieval"]["vector_hits"] > 0
+        assert result.trace["retrieval"]["vector_candidates"]
         assert any(
             "vector" in context.scores or "rrf_score" in context.scores
             for context in result.contexts

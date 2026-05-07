@@ -71,6 +71,9 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert query.status_code == 200
     assert query.json()["contexts"][0]["doc_id"] == doc_id
     assert query.json()["trace"]["retrieval"]["bm25_hits"] >= 1
+    assert query.json()["trace"]["retrieval"]["bm25_candidates"][0]["doc_id"] == doc_id
+    assert query.json()["trace"]["fusion"]["candidates"]
+    assert query.json()["trace"]["context"]["contexts"][0]["doc_id"] == doc_id
 
     filtered_out = client.post(
         "/collections/demo/query",
