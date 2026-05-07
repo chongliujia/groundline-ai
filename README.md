@@ -41,6 +41,17 @@ cp groundline.example.toml groundline.toml
 Use `groundline.toml` for LLM, embedding, and rerank provider settings. Put actual
 API keys in environment variables referenced by that file.
 
+For an OpenAI-compatible LLM API:
+
+```toml
+[llm]
+provider = "http"
+model = "chat-model"
+base_url = "https://provider.example/v1"
+endpoint_path = "/chat/completions"
+api_key_env = "GROUNDLINE_LLM_API_KEY"
+```
+
 By default, embedding is disabled so the local demo runs with BM25 only. To test
 the vector path without external API keys, set:
 
@@ -48,6 +59,18 @@ the vector path without external API keys, set:
 [embedding]
 provider = "hash"
 dimension = 384
+```
+
+To call an OpenAI-compatible embedding API:
+
+```toml
+[embedding]
+provider = "http"
+model = "embedding-model"
+base_url = "https://provider.example/v1"
+endpoint_path = "/embeddings"
+api_key_env = "GROUNDLINE_EMBEDDING_API_KEY"
+dimension = 1536
 ```
 
 When embedding is enabled, Groundline will try to write/query Qdrant and fall
@@ -59,6 +82,22 @@ Rerank is also disabled by default. For a dependency-free local rerank smoke tes
 [rerank]
 provider = "keyword"
 ```
+
+To call an HTTP rerank API:
+
+```toml
+[rerank]
+provider = "http"
+model = "rerank-model"
+base_url = "https://provider.example"
+endpoint_path = "/rerank"
+api_key_env = "GROUNDLINE_RERANK_API_KEY"
+```
+
+The embedding adapter sends `{ "model": ..., "input": [...] }` and reads
+`data[].embedding`. The rerank adapter sends `{ "model": ..., "query": ...,
+"documents": [...] }` and reads `results[].index` plus `score` or
+`relevance_score`.
 
 Start local Qdrant:
 

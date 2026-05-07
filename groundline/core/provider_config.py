@@ -11,6 +11,7 @@ class APIProviderConfig(BaseModel):
     provider: str = "none"
     model: str = ""
     base_url: str = ""
+    endpoint_path: str = ""
     api_key_env: str = ""
     timeout_seconds: int = 60
 

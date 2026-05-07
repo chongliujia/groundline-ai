@@ -15,6 +15,7 @@ def test_provider_config_loads_sections(tmp_path: Path) -> None:
         [embedding]
         provider = "openai_compatible"
         model = "embedding-model"
+        endpoint_path = "/v1/embeddings"
         dimension = 1536
 
         [rerank]
@@ -27,6 +28,7 @@ def test_provider_config_loads_sections(tmp_path: Path) -> None:
     config = load_provider_config(config_path)
 
     assert config.llm.model == "chat-model"
+    assert config.embedding.endpoint_path == "/v1/embeddings"
     assert config.embedding.dimension == 1536
     assert config.rerank.provider == "api"
 
