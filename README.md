@@ -106,6 +106,8 @@ groundline eval ./evalset.jsonl --collection demo --top-k 8
 ```
 
 Eval JSONL rows support `query`, `gold_doc_ids`, `gold_chunk_ids`, and `query_type`.
+Eval reports include aggregate metrics plus per-query hit/miss diagnostics:
+retrieved contexts, matched gold ids, first hit rank, and retrieval trace details.
 
 Inspect local ids for debugging and eval authoring:
 

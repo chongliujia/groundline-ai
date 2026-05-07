@@ -48,3 +48,38 @@ def test_run_eval_with_gold_doc_ids(tmp_path: Path) -> None:
     assert report.metrics.recall_at_k == 1.0
     assert report.metrics.mrr == 1.0
     assert report.by_query_type["exact"].queries == 1
+    assert len(report.queries) == 1
+    assert report.queries[0].hit is True
+    assert report.queries[0].first_hit_rank == 1
+    assert report.queries[0].matched_doc_ids == [ingest.documents[0].doc_id]
+    assert report.queries[0].retrieved[0].doc_id == ingest.documents[0].doc_id
+    assert report.queries[0].trace is not None
+    assert report.queries[0].trace["retrieval"]["bm25_candidates"]
+
+
+def test_run_eval_reports_misses(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+
+    evalset = tmp_path / "eval.jsonl"
+    evalset.write_text(
+        json.dumps(
+            {
+                "query": "住宿标准",
+                "gold_doc_ids": ["doc_missing"],
+                "query_type": "miss",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = run_eval(engine, "demo", evalset, top_k=3)
+
+    assert report.metrics.recall_at_k == 0.0
+    assert report.queries[0].hit is False
+    assert report.queries[0].first_hit_rank is None
+    assert report.queries[0].matched_doc_ids == []
+    assert report.queries[0].retrieved

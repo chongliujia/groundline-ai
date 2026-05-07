@@ -252,8 +252,33 @@ class EvalMetrics(GroundlineModel):
     queries: int
 
 
+class EvalRetrievedContext(GroundlineModel):
+    rank: int
+    chunk_id: str
+    doc_id: str
+    title: str | None = None
+    section: str | None = None
+    scores: dict[str, float] = Field(default_factory=dict)
+
+
+class EvalQueryResult(GroundlineModel):
+    query: str
+    query_type: str
+    gold_chunk_ids: list[str] = Field(default_factory=list)
+    gold_doc_ids: list[str] = Field(default_factory=list)
+    retrieved: list[EvalRetrievedContext] = Field(default_factory=list)
+    recall_at_k: float
+    mrr: float
+    hit: bool
+    first_hit_rank: int | None = None
+    matched_doc_ids: list[str] = Field(default_factory=list)
+    matched_chunk_ids: list[str] = Field(default_factory=list)
+    trace: dict[str, Any] | None = None
+
+
 class EvalReport(GroundlineModel):
     collection: str
     top_k: int
     metrics: EvalMetrics
     by_query_type: dict[str, EvalMetrics] = Field(default_factory=dict)
+    queries: list[EvalQueryResult] = Field(default_factory=list)

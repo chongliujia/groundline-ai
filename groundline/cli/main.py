@@ -194,6 +194,7 @@ def eval(
             f"{metrics.mrr:.3f}",
         )
     console.print(table)
+    _print_eval_queries(report)
 
 
 @app.command()
@@ -274,6 +275,42 @@ def _print_collections(engine: Groundline) -> None:
     table.add_column("Collection")
     for collection in engine.list_collections():
         table.add_row(collection)
+    console.print(table)
+
+
+def _print_eval_queries(report: BaseModel) -> None:
+    queries = getattr(report, "queries", [])
+    if not queries:
+        return
+    table = Table(title="Eval Queries")
+    table.add_column("Query")
+    table.add_column("Type")
+    table.add_column("Hit")
+    table.add_column("First Hit", justify="right")
+    table.add_column("Recall", justify="right")
+    table.add_column("MRR", justify="right")
+    table.add_column("Top Context")
+    for result in queries:
+        top_context = result.retrieved[0] if result.retrieved else None
+        table.add_row(
+            _preview(result.query, width=32),
+            result.query_type,
+            "yes" if result.hit else "no",
+            str(result.first_hit_rank or ""),
+            f"{result.recall_at_k:.3f}",
+            f"{result.mrr:.3f}",
+            _preview(
+                " > ".join(
+                    value
+                    for value in [
+                        top_context.title if top_context else None,
+                        top_context.section if top_context else None,
+                    ]
+                    if value
+                ),
+                width=48,
+            ),
+        )
     console.print(table)
 
 

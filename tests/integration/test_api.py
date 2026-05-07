@@ -105,6 +105,10 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     )
     assert report.status_code == 200
     assert report.json()["metrics"]["recall_at_k"] == 1.0
+    assert report.json()["queries"][0]["hit"] is True
+    assert report.json()["queries"][0]["first_hit_rank"] == 1
+    assert report.json()["queries"][0]["retrieved"][0]["doc_id"] == doc_id
+    assert report.json()["queries"][0]["trace"]["retrieval"]["bm25_candidates"]
 
     deleted = client.delete(f"/collections/demo/documents/{doc_id}")
     assert deleted.status_code == 200
