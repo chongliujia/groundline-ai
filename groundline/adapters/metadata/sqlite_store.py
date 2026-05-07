@@ -148,16 +148,27 @@ class SQLiteMetadataStore:
                 """
                 SELECT payload FROM document_versions
                 WHERE collection_name = ? AND doc_id = ?
-                ORDER BY version_id
                 """,
                 (collection, doc_id),
             ).fetchall()
-        return [DocumentVersion.model_validate_json(row[0]) for row in rows]
+        return sorted(
+            [DocumentVersion.model_validate_json(row[0]) for row in rows],
+            key=lambda version: version.created_at,
+        )
 
-    def deactivate_versions_for_document(self, collection: str, doc_id: str) -> None:
+    def deactivate_versions_for_document(
+        self,
+        collection: str,
+        doc_id: str,
+        superseded_by: str | None = None,
+    ) -> None:
         versions = [
             version.model_copy(
-                update={"is_latest": False, "updated_at": utc_now()},
+                update={
+                    "is_latest": False,
+                    "superseded_by": superseded_by,
+                    "updated_at": utc_now(),
+                },
             )
             for version in self.list_versions(collection, doc_id)
         ]

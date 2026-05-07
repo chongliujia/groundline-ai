@@ -62,6 +62,52 @@ def test_engine_keyword_rerank_adds_scores(tmp_path: Path) -> None:
     assert result.trace["rerank"]["enabled"] is True
 
 
+def test_engine_query_filters_by_metadata_and_document_fields(tmp_path: Path) -> None:
+    policies = tmp_path / "policies"
+    policies.mkdir()
+    finance = policies / "finance.md"
+    finance.write_text("# Finance\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engineering = policies / "engineering.md"
+    engineering.write_text("# Engineering\n\n住宿标准需要遵守研发出差规则。", encoding="utf-8")
+
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(
+        finance,
+        collection="demo",
+        doc_type="policy",
+        domain="finance",
+        language="zh",
+        metadata={"department": "finance"},
+    )
+    engine.ingest_path(
+        engineering,
+        collection="demo",
+        doc_type="handbook",
+        domain="engineering",
+        language="zh",
+        metadata={"department": "engineering"},
+    )
+
+    domain_result = engine.query("demo", "住宿标准", filters={"domain": "finance"})
+    metadata_result = engine.query(
+        "demo",
+        "住宿标准",
+        filters={"metadata": {"department": "engineering"}},
+        include_trace=True,
+    )
+    missing_result = engine.query("demo", "住宿标准", filters={"doc_type": "contract"})
+
+    assert domain_result.contexts
+    assert domain_result.contexts[0].title == "finance"
+    assert all(context.metadata["department"] == "finance" for context in domain_result.contexts)
+    assert metadata_result.contexts[0].metadata["department"] == "engineering"
+    assert metadata_result.trace is not None
+    assert metadata_result.trace["routing"]["filters"] == {
+        "metadata": {"department": "engineering"}
+    }
+    assert missing_result.contexts == []
+
+
 def test_engine_lists_collections_documents_and_chunks(tmp_path: Path) -> None:
     source = tmp_path / "policy.md"
     source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
@@ -98,10 +144,19 @@ def test_engine_reuses_doc_id_for_changed_source(tmp_path: Path) -> None:
     source.write_text("# Policy\n\n## Meal\n\n餐补标准是每天 100 元。", encoding="utf-8")
     second = engine.ingest_path(source, collection="demo")
     result = engine.query("demo", "住宿")
+    detail = engine.get_document_detail("demo", first.documents[0].doc_id)
 
     assert len(second.documents) == 1
     assert second.documents[0].doc_id == first.documents[0].doc_id
     assert second.documents[0].version_id != first.documents[0].version_id
+    assert detail is not None
+    assert detail.document.current_version_id == second.documents[0].version_id
+    assert len(detail.versions) == 2
+    assert detail.versions[0].superseded_by == second.documents[0].version_id
+    assert detail.versions[1].supersedes == first.documents[0].version_id
+    assert detail.chunk_count == 4
+    assert detail.active_chunk_count == 2
+    assert detail.latest_chunk_count == 2
     assert len(engine.list_documents("demo")) == 1
     assert len(engine.list_chunks("demo")) == 2
     assert len(engine.list_chunks("demo", include_inactive=True)) == 4
@@ -117,9 +172,16 @@ def test_engine_tombstones_document(tmp_path: Path) -> None:
 
     deleted = engine.delete_document("demo", doc_id)
     result = engine.query("demo", "住宿标准")
+    hidden_detail = engine.get_document_detail("demo", doc_id)
+    inactive_detail = engine.get_document_detail("demo", doc_id, include_inactive=True)
 
     assert deleted.deleted is True
     assert deleted.chunks_deactivated >= 1
+    assert hidden_detail is None
+    assert inactive_detail is not None
+    assert inactive_detail.document.is_active is False
+    assert inactive_detail.versions[0].is_active is False
+    assert inactive_detail.active_chunk_count == 0
     assert engine.list_documents("demo") == []
     assert engine.list_documents("demo", include_inactive=True)[0].is_active is False
     assert engine.list_chunks("demo") == []

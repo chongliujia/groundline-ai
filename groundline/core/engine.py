@@ -21,6 +21,7 @@ from groundline.core.schemas import (
     Chunk,
     DeleteResponse,
     Document,
+    DocumentDetail,
     DocumentVersion,
     GroundedContext,
     IngestedDocument,
@@ -74,6 +75,63 @@ class Groundline:
         if doc_id is None:
             return chunks
         return [chunk for chunk in chunks if chunk.doc_id == doc_id]
+
+    def get_document(
+        self,
+        collection: str,
+        doc_id: str,
+        include_inactive: bool = False,
+    ) -> Document | None:
+        document = self.metadata.get_document(collection, doc_id)
+        if document is None:
+            return None
+        if not include_inactive and not document.is_active:
+            return None
+        return document
+
+    def list_document_versions(
+        self,
+        collection: str,
+        doc_id: str,
+        include_inactive: bool = False,
+    ) -> list[DocumentVersion]:
+        versions = self.metadata.list_versions(collection, doc_id)
+        if include_inactive:
+            return versions
+        return [version for version in versions if version.is_active]
+
+    def get_document_detail(
+        self,
+        collection: str,
+        doc_id: str,
+        include_inactive: bool = False,
+    ) -> DocumentDetail | None:
+        document = self.get_document(
+            collection,
+            doc_id,
+            include_inactive=include_inactive,
+        )
+        if document is None:
+            return None
+        chunks = self.list_chunks(
+            collection,
+            doc_id=doc_id,
+            include_inactive=True,
+        )
+        return DocumentDetail(
+            collection=collection,
+            document=document,
+            versions=self.list_document_versions(
+                collection,
+                doc_id,
+                include_inactive=include_inactive,
+            ),
+            chunk_count=len(chunks),
+            active_chunk_count=len([chunk for chunk in chunks if chunk.is_active]),
+            latest_chunk_count=len(
+                [chunk for chunk in chunks if chunk.is_active and chunk.is_latest]
+            ),
+        )
 
     def delete_document(self, collection: str, doc_id: str) -> DeleteResponse:
         document = self.metadata.get_document(collection, doc_id)
@@ -230,11 +288,16 @@ class Groundline:
                 domain=domain,
                 language=language,
                 acl_groups=tuple(acl_groups),
+                metadata=metadata,
             )
         ).chunk(blocks, doc_id=doc_id, version_id=version_id)
 
         if existing_document:
-            self.metadata.deactivate_versions_for_document(collection, doc_id)
+            self.metadata.deactivate_versions_for_document(
+                collection,
+                doc_id,
+                superseded_by=version_id,
+            )
             self.metadata.deactivate_chunks_for_document(collection, doc_id)
         self.metadata.put_document(collection, document)
         self.metadata.put_version(collection, version)
@@ -256,6 +319,7 @@ class Groundline:
         query: str,
         tenant_id: str = "default",
         user_groups: list[str] | None = None,
+        filters: dict[str, object] | None = None,
         top_k: int = 8,
         include_trace: bool = False,
     ) -> QueryResponse:
@@ -266,6 +330,7 @@ class Groundline:
             and chunk.is_active
             and chunk.is_latest
             and self._is_allowed(chunk.acl_groups, user_groups or [])
+            and self._matches_filters(chunk, filters or {})
         ]
         search = InMemoryBM25Store()
         search.index(collection, chunks)
@@ -296,7 +361,11 @@ class Groundline:
         trace = None
         if include_trace:
             trace = empty_trace()
-            trace["routing"] = {"collection": collection, "tenant_id": tenant_id}
+            trace["routing"] = {
+                "collection": collection,
+                "tenant_id": tenant_id,
+                "filters": filters or {},
+            }
             trace["retrieval"] = {
                 "bm25_hits": len(bm25_hits),
                 "vector_hits": len(vector_hits),
@@ -319,6 +388,38 @@ class Groundline:
     @staticmethod
     def _is_allowed(chunk_groups: list[str], user_groups: list[str]) -> bool:
         return not chunk_groups or bool(set(chunk_groups) & set(user_groups))
+
+    @classmethod
+    def _matches_filters(cls, chunk: Chunk, filters: dict[str, object]) -> bool:
+        if not filters:
+            return True
+
+        for key, expected in filters.items():
+            if expected is None:
+                continue
+            if key == "metadata" and isinstance(expected, dict):
+                if not all(
+                    cls._matches_value(chunk.metadata.get(metadata_key), metadata_value)
+                    for metadata_key, metadata_value in expected.items()
+                ):
+                    return False
+                continue
+            if key.startswith("metadata."):
+                metadata_key = key.removeprefix("metadata.")
+                if not cls._matches_value(chunk.metadata.get(metadata_key), expected):
+                    return False
+                continue
+            if not hasattr(chunk, key):
+                return False
+            if not cls._matches_value(getattr(chunk, key), expected):
+                return False
+        return True
+
+    @staticmethod
+    def _matches_value(actual: object, expected: object) -> bool:
+        if isinstance(expected, list):
+            return actual in expected
+        return actual == expected
 
     def _try_index_vectors(self, collection: str, chunks: list[Chunk]) -> str | None:
         if not chunks:
@@ -344,6 +445,10 @@ class Groundline:
                             "version_id": chunk.version_id,
                             "tenant_id": chunk.tenant_id,
                             "title": chunk.title,
+                            "doc_type": chunk.doc_type,
+                            "domain": chunk.domain,
+                            "language": chunk.language,
+                            "metadata": chunk.metadata,
                         },
                     )
                     for chunk, vector in zip(chunks, vectors, strict=True)

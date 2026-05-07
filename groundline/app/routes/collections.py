@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
-from groundline.core.schemas import DeleteResponse, IngestRequest, IngestResponse
+from groundline.core.schemas import DeleteResponse, DocumentDetail, IngestRequest, IngestResponse
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -35,6 +35,42 @@ def list_documents(
             document.model_dump(mode="json")
             for document in engine.list_documents(
                 collection_name,
+                include_inactive=include_inactive,
+            )
+        ]
+    }
+
+
+@router.get("/{collection_name}/documents/{doc_id}", response_model=DocumentDetail)
+def get_document(
+    collection_name: str,
+    doc_id: str,
+    include_inactive: bool = False,
+) -> DocumentDetail:
+    engine = Groundline(get_settings())
+    detail = engine.get_document_detail(
+        collection_name,
+        doc_id,
+        include_inactive=include_inactive,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return detail
+
+
+@router.get("/{collection_name}/documents/{doc_id}/versions")
+def list_document_versions(
+    collection_name: str,
+    doc_id: str,
+    include_inactive: bool = False,
+) -> dict[str, list[dict]]:
+    engine = Groundline(get_settings())
+    return {
+        "versions": [
+            version.model_dump(mode="json")
+            for version in engine.list_document_versions(
+                collection_name,
+                doc_id,
                 include_inactive=include_inactive,
             )
         ]

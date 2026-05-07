@@ -42,6 +42,15 @@ def ingest(
     title: Annotated[str | None, typer.Option(help="Document title for a single file.")] = None,
     doc_type: Annotated[str | None, typer.Option(help="Document type metadata.")] = None,
     domain: Annotated[str | None, typer.Option(help="Domain metadata.")] = None,
+    language: Annotated[str | None, typer.Option(help="Language metadata.")] = None,
+    acl_groups: Annotated[
+        list[str] | None,
+        typer.Option("--acl-group", help="Allowed user group; may be repeated."),
+    ] = None,
+    metadata_json: Annotated[
+        str | None,
+        typer.Option("--metadata", help="JSON object with document metadata."),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -51,6 +60,7 @@ def ingest(
     ),
 ) -> None:
     engine = Groundline(Settings(data_dir=data_dir))
+    metadata = _parse_json_object(metadata_json, option_name="--metadata")
     result = engine.ingest_path(
         path=path,
         collection=collection,
@@ -58,6 +68,9 @@ def ingest(
         title=title,
         doc_type=doc_type,
         domain=domain,
+        language=language,
+        acl_groups=acl_groups or [],
+        metadata=metadata,
     )
     if json_output:
         _print_json_model(result)
@@ -85,6 +98,13 @@ def query(
     text: Annotated[str, typer.Argument(help="Query text.")],
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
     tenant_id: Annotated[str, typer.Option(help="Tenant id.")] = "default",
+    doc_type: Annotated[str | None, typer.Option(help="Filter by document type.")] = None,
+    domain: Annotated[str | None, typer.Option(help="Filter by domain.")] = None,
+    language: Annotated[str | None, typer.Option(help="Filter by language.")] = None,
+    filters_json: Annotated[
+        str | None,
+        typer.Option("--filters", help="JSON object with additional exact-match filters."),
+    ] = None,
     top_k: Annotated[int, typer.Option(help="Number of contexts to return.")] = 8,
     trace: Annotated[bool, typer.Option(help="Include retrieval trace.")] = False,
     json_output: Annotated[
@@ -96,10 +116,17 @@ def query(
     ),
 ) -> None:
     engine = Groundline(Settings(data_dir=data_dir))
+    filters = _build_query_filters(
+        doc_type=doc_type,
+        domain=domain,
+        language=language,
+        filters_json=filters_json,
+    )
     result = engine.query(
         collection=collection,
         query=text,
         tenant_id=tenant_id,
+        filters=filters,
         top_k=top_k,
         include_trace=trace,
     )
@@ -173,7 +200,7 @@ def eval(
 def inspect(
     target: Annotated[
         str,
-        typer.Argument(help="One of: collections, documents, chunks."),
+        typer.Argument(help="One of: collections, documents, document, versions, chunks."),
     ] = "collections",
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
     doc_id: Annotated[str | None, typer.Option(help="Filter chunks by document id.")] = None,
@@ -213,6 +240,21 @@ def inspect(
             include_inactive=include_inactive,
             limit=limit,
         )
+    elif normalized in {"document", "doc"}:
+        _print_document_detail(
+            engine,
+            collection=collection,
+            doc_id=_require_doc_id(doc_id, target=normalized),
+            include_inactive=include_inactive,
+        )
+    elif normalized in {"versions", "document-versions"}:
+        _print_document_versions(
+            engine,
+            collection=collection,
+            doc_id=_require_doc_id(doc_id, target=normalized),
+            include_inactive=include_inactive,
+            limit=limit,
+        )
     elif normalized == "chunks":
         _print_chunks(
             engine,
@@ -222,7 +264,9 @@ def inspect(
             limit=limit,
         )
     else:
-        raise typer.BadParameter("target must be one of: collections, documents, chunks")
+        raise typer.BadParameter(
+            "target must be one of: collections, documents, document, versions, chunks"
+        )
 
 
 def _print_collections(engine: Groundline) -> None:
@@ -289,11 +333,120 @@ def _print_chunks(
     console.print(table)
 
 
+def _print_document_detail(
+    engine: Groundline,
+    collection: str,
+    doc_id: str,
+    include_inactive: bool,
+) -> None:
+    detail = engine.get_document_detail(
+        collection,
+        doc_id,
+        include_inactive=include_inactive,
+    )
+    if detail is None:
+        console.print(f"[yellow]Document not found[/yellow] {doc_id}")
+        return
+
+    document = detail.document
+    table = Table(title=f"Document: {doc_id}")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Title", document.title or "")
+    table.add_row("Source", document.source_uri)
+    table.add_row("Source Type", document.source_type)
+    table.add_row("Active", "yes" if document.is_active else "no")
+    table.add_row("Current Version", document.current_version_id or "")
+    table.add_row("Tenant", document.tenant_id)
+    table.add_row("Doc Type", document.doc_type or "")
+    table.add_row("Domain", document.domain or "")
+    table.add_row("Language", document.language or "")
+    table.add_row("Chunks", str(detail.chunk_count))
+    table.add_row("Active Chunks", str(detail.active_chunk_count))
+    table.add_row("Latest Chunks", str(detail.latest_chunk_count))
+    console.print(table)
+    _print_document_versions(
+        engine,
+        collection=collection,
+        doc_id=doc_id,
+        include_inactive=include_inactive,
+        limit=20,
+    )
+
+
+def _print_document_versions(
+    engine: Groundline,
+    collection: str,
+    doc_id: str,
+    include_inactive: bool,
+    limit: int,
+) -> None:
+    table = Table(title=f"Versions: {doc_id}")
+    table.add_column("Version ID")
+    table.add_column("Latest")
+    table.add_column("Active")
+    table.add_column("Supersedes")
+    table.add_column("Parser")
+    table.add_column("Chunker")
+    table.add_column("Hash")
+    for version in engine.list_document_versions(
+        collection,
+        doc_id,
+        include_inactive=include_inactive,
+    )[:limit]:
+        table.add_row(
+            version.version_id,
+            "yes" if version.is_latest else "no",
+            "yes" if version.is_active else "no",
+            version.supersedes or "",
+            version.parser_version,
+            version.chunker_version,
+            version.content_hash[:12],
+        )
+    console.print(table)
+
+
+def _require_doc_id(doc_id: str | None, target: str) -> str:
+    if doc_id is None:
+        raise typer.BadParameter(f"--doc-id is required for inspect {target}")
+    return doc_id
+
+
 def _preview(text: str, width: int = 80) -> str:
     compact = " ".join(text.split())
     if len(compact) <= width:
         return compact
     return compact[: width - 1] + "..."
+
+
+def _build_query_filters(
+    doc_type: str | None,
+    domain: str | None,
+    language: str | None,
+    filters_json: str | None,
+) -> dict[str, Any]:
+    filters: dict[str, Any] = {}
+    if filters_json:
+        filters.update(_parse_json_object(filters_json, option_name="--filters"))
+    if doc_type is not None:
+        filters["doc_type"] = doc_type
+    if domain is not None:
+        filters["domain"] = domain
+    if language is not None:
+        filters["language"] = language
+    return filters
+
+
+def _parse_json_object(value: str | None, option_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise typer.BadParameter(f"{option_name} must be valid JSON") from error
+    if not isinstance(parsed, dict):
+        raise typer.BadParameter(f"{option_name} must be a JSON object")
+    return parsed
 
 
 def _inspect_payload(
@@ -316,6 +469,24 @@ def _inspect_payload(
                 )[:limit]
             ]
         }
+    if target in {"document", "doc"}:
+        detail = engine.get_document_detail(
+            collection,
+            _require_doc_id(doc_id, target=target),
+            include_inactive=include_inactive,
+        )
+        return {"document": detail.model_dump(mode="json") if detail else None}
+    if target in {"versions", "document-versions"}:
+        return {
+            "versions": [
+                version.model_dump(mode="json")
+                for version in engine.list_document_versions(
+                    collection,
+                    _require_doc_id(doc_id, target=target),
+                    include_inactive=include_inactive,
+                )[:limit]
+            ]
+        }
     if target == "chunks":
         return {
             "chunks": [
@@ -327,7 +498,9 @@ def _inspect_payload(
                 )[:limit]
             ]
         }
-    raise typer.BadParameter("target must be one of: collections, documents, chunks")
+    raise typer.BadParameter(
+        "target must be one of: collections, documents, document, versions, chunks"
+    )
 
 
 @app.command()

@@ -50,6 +50,16 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert documents.status_code == 200
     assert documents.json()["documents"][0]["doc_id"] == doc_id
 
+    document_detail = client.get(f"/collections/demo/documents/{doc_id}")
+    assert document_detail.status_code == 200
+    assert document_detail.json()["document"]["doc_id"] == doc_id
+    assert document_detail.json()["active_chunk_count"] >= 1
+    assert document_detail.json()["latest_chunk_count"] >= 1
+
+    versions = client.get(f"/collections/demo/documents/{doc_id}/versions")
+    assert versions.status_code == 200
+    assert versions.json()["versions"][0]["doc_id"] == doc_id
+
     chunks = client.get("/collections/demo/chunks")
     assert chunks.status_code == 200
     assert chunks.json()["chunks"]
@@ -61,6 +71,17 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert query.status_code == 200
     assert query.json()["contexts"][0]["doc_id"] == doc_id
     assert query.json()["trace"]["retrieval"]["bm25_hits"] >= 1
+
+    filtered_out = client.post(
+        "/collections/demo/query",
+        json={
+            "query": "住宿标准",
+            "tenant_id": "default",
+            "filters": {"domain": "engineering"},
+        },
+    )
+    assert filtered_out.status_code == 200
+    assert filtered_out.json()["contexts"] == []
 
     evalset = tmp_path / "eval.jsonl"
     evalset.write_text(
@@ -101,3 +122,12 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert inactive.status_code == 200
     assert inactive.json()["documents"][0]["is_active"] is False
 
+    hidden_detail = client.get(f"/collections/demo/documents/{doc_id}")
+    assert hidden_detail.status_code == 404
+
+    inactive_detail = client.get(
+        f"/collections/demo/documents/{doc_id}",
+        params={"include_inactive": True},
+    )
+    assert inactive_detail.status_code == 200
+    assert inactive_detail.json()["document"]["is_active"] is False

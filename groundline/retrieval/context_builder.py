@@ -21,5 +21,5 @@ def chunk_to_context(chunk: Chunk, source_uri: str | None = None) -> GroundedCon
             page_start=chunk.page_start,
             page_end=chunk.page_end,
         ),
+        metadata=dict(chunk.metadata),
     )
-

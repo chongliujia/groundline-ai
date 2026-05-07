@@ -17,6 +17,7 @@ def query_collection(collection_name: str, request: QueryRequest) -> QueryRespon
         query=request.query,
         tenant_id=request.tenant_id,
         user_groups=request.user_groups,
+        filters=request.filters,
         top_k=request.top_k,
         include_trace=request.include_trace,
     )

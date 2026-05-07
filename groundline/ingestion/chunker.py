@@ -18,6 +18,7 @@ class ChunkerConfig:
     domain: str | None = None
     language: str | None = None
     acl_groups: tuple[str, ...] = ()
+    metadata: dict[str, object] | None = None
 
 
 class HeadingAwareChunker:
@@ -58,6 +59,7 @@ class HeadingAwareChunker:
                     language=self.config.language,
                     acl_groups=list(self.config.acl_groups),
                     content_hash=hash_text(content_markdown),
+                    metadata=dict(self.config.metadata or {}),
                 )
             )
             current.clear()

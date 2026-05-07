@@ -92,6 +92,8 @@ GET    /collections
 POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
 GET    /collections/{collection}/documents
+GET    /collections/{collection}/documents/{doc_id}
+GET    /collections/{collection}/documents/{doc_id}/versions
 GET    /collections/{collection}/chunks
 POST   /collections/{collection}/eval
 DELETE /collections/{collection}/documents/{doc_id}
@@ -116,11 +118,34 @@ groundline inspect chunks --collection demo
 Most CLI commands support `--json` for scripts and future UI integration:
 
 ```bash
-groundline ingest ./docs --collection demo --json
+groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline inspect documents --collection demo --json
+groundline inspect document --collection demo --doc-id <doc_id> --json
+groundline inspect versions --collection demo --doc-id <doc_id> --json
 groundline eval ./evalset.jsonl --collection demo --json
 groundline delete document <doc_id> --collection demo --json
+```
+
+Query supports exact-match filters on chunk/document fields and metadata:
+
+```bash
+groundline query "住宿标准" --collection demo --domain finance
+groundline query "住宿标准" --collection demo --filters '{"metadata":{"department":"finance"}}'
+```
+
+The API uses the same filter object:
+
+```json
+{
+  "query": "住宿标准",
+  "filters": {
+    "domain": "finance",
+    "metadata": {
+      "department": "finance"
+    }
+  }
+}
 ```
 
 Repeated ingest skips unchanged files by `source_uri + content_hash`. Changed files

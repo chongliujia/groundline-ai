@@ -224,6 +224,15 @@ class DeleteResponse(GroundlineModel):
     reason: str | None = None
 
 
+class DocumentDetail(GroundlineModel):
+    collection: str
+    document: Document
+    versions: list[DocumentVersion] = Field(default_factory=list)
+    chunk_count: int = 0
+    active_chunk_count: int = 0
+    latest_chunk_count: int = 0
+
+
 class EvalItem(GroundlineModel):
     query: str
     gold_chunk_ids: list[str] = Field(default_factory=list)
