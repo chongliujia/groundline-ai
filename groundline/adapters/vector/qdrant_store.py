@@ -84,6 +84,15 @@ class QdrantVectorStore:
             for rank, point in enumerate(results, start=1)
         ]
 
+    def delete_collection(self, collection: str) -> bool:
+        try:
+            if not self.client.collection_exists(collection):
+                return False
+            self.client.delete_collection(collection_name=collection)
+            return True
+        except Exception as error:  # pragma: no cover - depends on external Qdrant
+            raise BackendUnavailableError(f"Qdrant collection delete failed: {error}") from error
+
     def _distance(self) -> models.Distance:
         value = self.distance.lower()
         if value == "dot":

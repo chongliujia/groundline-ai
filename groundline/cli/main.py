@@ -11,6 +11,7 @@ from rich.table import Table
 
 from groundline.core.config import Settings
 from groundline.core.engine import Groundline
+from groundline.core.schemas import CollectionOperationResponse
 from groundline.evals.runner import run_eval
 
 app = typer.Typer(help="Groundline CLI")
@@ -542,8 +543,8 @@ def _inspect_payload(
 
 @app.command()
 def delete(
-    target: Annotated[str, typer.Argument(help="Currently supported: document.")],
-    identifier: Annotated[str, typer.Argument(help="Document id.")],
+    target: Annotated[str, typer.Argument(help="One of: document, collection.")],
+    identifier: Annotated[str, typer.Argument(help="Document id or collection name.")],
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
     json_output: Annotated[
         bool,
@@ -553,19 +554,68 @@ def delete(
         ".groundline"
     ),
 ) -> None:
-    if target.lower() not in {"document", "doc"}:
-        raise typer.BadParameter("target must be document")
     engine = Groundline(Settings(data_dir=data_dir))
-    result = engine.delete_document(collection, identifier)
+    normalized = target.lower()
+    if normalized in {"document", "doc"}:
+        result = engine.delete_document(collection, identifier)
+        if json_output:
+            _print_json_model(result)
+            return
+        if result.deleted:
+            console.print(
+                f"Deleted {result.doc_id}; deactivated {result.chunks_deactivated} chunks."
+            )
+        else:
+            console.print(f"[yellow]Not deleted[/yellow] {result.doc_id}: {result.reason}")
+        return
+    if normalized == "collection":
+        result = engine.delete_collection(identifier)
+        if json_output:
+            _print_json_model(result)
+            return
+        _print_collection_operation(result)
+        return
+    raise typer.BadParameter("target must be one of: document, collection")
+
+
+@app.command()
+def clear(
+    target: Annotated[str, typer.Argument(help="Currently supported: collection.")] = "collection",
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    if target.lower() != "collection":
+        raise typer.BadParameter("target must be collection")
+    engine = Groundline(Settings(data_dir=data_dir))
+    result = engine.clear_collection(collection)
     if json_output:
         _print_json_model(result)
         return
-    if result.deleted:
+    _print_collection_operation(result)
+
+
+def _print_collection_operation(result: CollectionOperationResponse) -> None:
+    if not result.ok:
         console.print(
-            f"Deleted {result.doc_id}; deactivated {result.chunks_deactivated} chunks."
+            f"[yellow]Collection {result.operation} skipped[/yellow] "
+            f"{result.collection}: {result.reason}"
         )
-    else:
-        console.print(f"[yellow]Not deleted[/yellow] {result.doc_id}: {result.reason}")
+        return
+    action = "Cleared" if result.operation == "clear" else "Deleted"
+    console.print(
+        f"{action} collection {result.collection}; "
+        f"removed {result.documents_removed} documents, "
+        f"{result.versions_removed} versions, "
+        f"{result.chunks_removed} chunks."
+    )
+    if result.vector_error:
+        console.print(f"[yellow]Vector cleanup skipped[/yellow]: {result.vector_error}")
 
 
 def _print_json_model(model: BaseModel) -> None:

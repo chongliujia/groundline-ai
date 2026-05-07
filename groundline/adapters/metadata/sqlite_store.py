@@ -74,6 +74,68 @@ class SQLiteMetadataStore:
             ).fetchall()
         return [row[0] for row in rows]
 
+    def collection_exists(self, collection: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM collections
+                WHERE collection_name = ?
+                """,
+                (collection,),
+            ).fetchone()
+        return row is not None
+
+    def collection_counts(self, collection: str) -> tuple[int, int, int]:
+        with self._connect() as conn:
+            documents = conn.execute(
+                """
+                SELECT COUNT(*) FROM documents
+                WHERE collection_name = ?
+                """,
+                (collection,),
+            ).fetchone()[0]
+            versions = conn.execute(
+                """
+                SELECT COUNT(*) FROM document_versions
+                WHERE collection_name = ?
+                """,
+                (collection,),
+            ).fetchone()[0]
+            chunks = conn.execute(
+                """
+                SELECT COUNT(*) FROM chunks
+                WHERE collection_name = ?
+                """,
+                (collection,),
+            ).fetchone()[0]
+        return int(documents), int(versions), int(chunks)
+
+    def clear_collection(self, collection: str) -> tuple[int, int, int]:
+        counts = self.collection_counts(collection)
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM chunks WHERE collection_name = ?",
+                (collection,),
+            )
+            conn.execute(
+                "DELETE FROM document_versions WHERE collection_name = ?",
+                (collection,),
+            )
+            conn.execute(
+                "DELETE FROM documents WHERE collection_name = ?",
+                (collection,),
+            )
+        return counts
+
+    def delete_collection(self, collection: str) -> tuple[int, int, int]:
+        counts = self.clear_collection(collection)
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM collections WHERE collection_name = ?",
+                (collection,),
+            )
+        return counts
+
     def put_document(self, collection: str, document: Document) -> None:
         self.create_collection(collection)
         with self._connect() as conn:

@@ -202,3 +202,43 @@ def test_engine_delete_missing_document(tmp_path: Path) -> None:
 
     assert deleted.deleted is False
     assert deleted.reason == "document not found"
+
+
+def test_engine_clears_and_deletes_collection(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+
+    cleared = engine.clear_collection("demo")
+
+    assert cleared.ok is True
+    assert cleared.operation == "clear"
+    assert cleared.documents_removed == 1
+    assert cleared.versions_removed == 1
+    assert cleared.chunks_removed >= 1
+    assert engine.list_collections() == ["demo"]
+    assert engine.list_documents("demo") == []
+    assert engine.list_chunks("demo") == []
+
+    engine.ingest_path(source, collection="demo")
+    deleted = engine.delete_collection("demo")
+
+    assert deleted.ok is True
+    assert deleted.operation == "delete"
+    assert deleted.documents_removed == 1
+    assert "demo" not in engine.list_collections()
+    assert engine.list_documents("demo") == []
+    assert engine.list_chunks("demo") == []
+
+
+def test_engine_clear_missing_collection(tmp_path: Path) -> None:
+    engine = Groundline.from_local(tmp_path / "data")
+
+    cleared = engine.clear_collection("missing")
+    deleted = engine.delete_collection("missing")
+
+    assert cleared.ok is False
+    assert cleared.reason == "collection not found"
+    assert deleted.ok is False
+    assert deleted.reason == "collection not found"

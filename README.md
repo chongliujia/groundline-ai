@@ -91,11 +91,13 @@ POST   /collections
 GET    /collections
 POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
+POST   /collections/{collection}/clear
 GET    /collections/{collection}/documents
 GET    /collections/{collection}/documents/{doc_id}
 GET    /collections/{collection}/documents/{doc_id}/versions
 GET    /collections/{collection}/chunks
 POST   /collections/{collection}/eval
+DELETE /collections/{collection}
 DELETE /collections/{collection}/documents/{doc_id}
 ```
 
@@ -126,6 +128,8 @@ groundline inspect documents --collection demo --json
 groundline inspect document --collection demo --doc-id <doc_id> --json
 groundline inspect versions --collection demo --doc-id <doc_id> --json
 groundline eval ./evalset.jsonl --collection demo --json
+groundline clear collection --collection demo --json
+groundline delete collection demo --json
 groundline delete document <doc_id> --collection demo --json
 ```
 

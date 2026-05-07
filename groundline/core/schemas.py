@@ -216,6 +216,18 @@ class IngestResponse(GroundlineModel):
     skipped: list[SkippedSource] = Field(default_factory=list)
 
 
+class CollectionOperationResponse(GroundlineModel):
+    collection: str
+    operation: Literal["clear", "delete"]
+    ok: bool
+    documents_removed: int = 0
+    versions_removed: int = 0
+    chunks_removed: int = 0
+    vector_collection_deleted: bool = False
+    reason: str | None = None
+    vector_error: str | None = None
+
+
 class DeleteResponse(GroundlineModel):
     collection: str
     doc_id: str

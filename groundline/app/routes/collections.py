@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException
 
 from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
-from groundline.core.schemas import DeleteResponse, DocumentDetail, IngestRequest, IngestResponse
+from groundline.core.schemas import (
+    CollectionOperationResponse,
+    DeleteResponse,
+    DocumentDetail,
+    IngestRequest,
+    IngestResponse,
+)
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -22,6 +28,24 @@ def create_collection(name: str) -> dict[str, str]:
     engine = Groundline(get_settings())
     engine.metadata.create_collection(name)
     return {"name": name, "status": "created"}
+
+
+@router.post("/{collection_name}/clear", response_model=CollectionOperationResponse)
+def clear_collection(collection_name: str) -> CollectionOperationResponse:
+    engine = Groundline(get_settings())
+    result = engine.clear_collection(collection_name)
+    if not result.ok:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
+
+
+@router.delete("/{collection_name}", response_model=CollectionOperationResponse)
+def delete_collection(collection_name: str) -> CollectionOperationResponse:
+    engine = Groundline(get_settings())
+    result = engine.delete_collection(collection_name)
+    if not result.ok:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
 
 
 @router.get("/{collection_name}/documents")

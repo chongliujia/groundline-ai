@@ -138,3 +138,27 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     )
     assert inactive_detail.status_code == 200
     assert inactive_detail.json()["document"]["is_active"] is False
+
+    scratch_created = client.post("/collections", params={"name": "scratch"})
+    assert scratch_created.status_code == 200
+    scratch_ingest = client.post(
+        "/collections/scratch/ingest",
+        json={"source_uri": str(source), "tenant_id": "default"},
+    )
+    assert scratch_ingest.status_code == 200
+    scratch_clear = client.post("/collections/scratch/clear")
+    assert scratch_clear.status_code == 200
+    assert scratch_clear.json()["ok"] is True
+    assert scratch_clear.json()["documents_removed"] == 1
+    assert client.get("/collections/scratch/documents").json()["documents"] == []
+
+    scratch_ingest_again = client.post(
+        "/collections/scratch/ingest",
+        json={"source_uri": str(source), "tenant_id": "default"},
+    )
+    assert scratch_ingest_again.status_code == 200
+    scratch_delete = client.delete("/collections/scratch")
+    assert scratch_delete.status_code == 200
+    assert scratch_delete.json()["ok"] is True
+    assert scratch_delete.json()["operation"] == "delete"
+    assert "scratch" not in client.get("/collections").json()["collections"]

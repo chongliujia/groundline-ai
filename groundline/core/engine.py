@@ -19,6 +19,7 @@ from groundline.core.hashing import hash_file
 from groundline.core.ids import new_id
 from groundline.core.schemas import (
     Chunk,
+    CollectionOperationResponse,
     DeleteResponse,
     Document,
     DocumentDetail,
@@ -131,6 +132,48 @@ class Groundline:
             latest_chunk_count=len(
                 [chunk for chunk in chunks if chunk.is_active and chunk.is_latest]
             ),
+        )
+
+    def clear_collection(self, collection: str) -> CollectionOperationResponse:
+        if not self.metadata.collection_exists(collection):
+            return CollectionOperationResponse(
+                collection=collection,
+                operation="clear",
+                ok=False,
+                reason="collection not found",
+            )
+        documents, versions, chunks = self.metadata.clear_collection(collection)
+        vector_deleted, vector_error = self._try_delete_vector_collection(collection)
+        return CollectionOperationResponse(
+            collection=collection,
+            operation="clear",
+            ok=True,
+            documents_removed=documents,
+            versions_removed=versions,
+            chunks_removed=chunks,
+            vector_collection_deleted=vector_deleted,
+            vector_error=vector_error,
+        )
+
+    def delete_collection(self, collection: str) -> CollectionOperationResponse:
+        if not self.metadata.collection_exists(collection):
+            return CollectionOperationResponse(
+                collection=collection,
+                operation="delete",
+                ok=False,
+                reason="collection not found",
+            )
+        documents, versions, chunks = self.metadata.delete_collection(collection)
+        vector_deleted, vector_error = self._try_delete_vector_collection(collection)
+        return CollectionOperationResponse(
+            collection=collection,
+            operation="delete",
+            ok=True,
+            documents_removed=documents,
+            versions_removed=versions,
+            chunks_removed=chunks,
+            vector_collection_deleted=vector_deleted,
+            vector_error=vector_error,
         )
 
     def delete_document(self, collection: str, doc_id: str) -> DeleteResponse:
@@ -545,6 +588,13 @@ class Groundline:
             return store.search(collection, vector, top_k=top_k), None
         except (BackendUnavailableError, ProviderConfigurationError, ImportError) as error:
             return [], str(error)
+
+    def _try_delete_vector_collection(self, collection: str) -> tuple[bool, str | None]:
+        try:
+            store = QdrantVectorStore(url=self.settings.qdrant_url)
+            return store.delete_collection(collection), None
+        except (BackendUnavailableError, ImportError) as error:
+            return False, str(error)
 
     def _try_rerank(
         self,
