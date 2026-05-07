@@ -35,7 +35,7 @@ from groundline.core.schemas import (
 from groundline.ingestion.chunker import CHUNKER_VERSION, ChunkerConfig, HeadingAwareChunker
 from groundline.ingestion.loader import infer_source_type, iter_local_documents
 from groundline.ingestion.parser import PARSER_VERSION, ParserRegistry
-from groundline.retrieval.context_builder import chunk_to_context
+from groundline.retrieval.context_builder import chunk_to_context, pack_adjacent_chunks
 from groundline.retrieval.fusion import reciprocal_rank_fusion
 from groundline.retrieval.trace import empty_trace
 
@@ -371,8 +371,12 @@ class Groundline:
         user_groups: list[str] | None = None,
         filters: dict[str, object] | None = None,
         top_k: int = 8,
+        context_window: int = 0,
+        max_context_chars: int = 12000,
         include_trace: bool = False,
     ) -> QueryResponse:
+        context_window = min(max(context_window, 0), 5)
+        max_context_chars = max(max_context_chars, 1)
         chunks = [
             chunk
             for chunk in self.metadata.list_chunks(collection)
@@ -403,15 +407,47 @@ class Groundline:
 
         contexts: list[GroundedContext] = []
         hit_by_chunk_id = {hit.chunk_id: hit for hit in hits}
+        packed_chunk_ids: set[str] = set()
+        skipped_contexts: list[dict[str, object]] = []
+        used_context_chars = 0
         for chunk, rerank_score in reranked_chunks:
+            if chunk.chunk_id in packed_chunk_ids:
+                skipped_contexts.append(
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "reason": "anchor already included in higher-ranked packed context",
+                    }
+                )
+                continue
+            remaining_chars = max_context_chars - used_context_chars
+            if remaining_chars <= 0:
+                skipped_contexts.append(
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "reason": "context character budget exhausted",
+                    }
+                )
+                continue
             hit = hit_by_chunk_id.get(chunk.chunk_id)
             document = doc_by_id.get(chunk.doc_id)
-            context = chunk_to_context(chunk, source_uri=document.source_uri if document else None)
+            packed_chunks = pack_adjacent_chunks(
+                anchor=chunk,
+                chunk_by_id=chunk_by_id,
+                context_window=context_window,
+                max_chars=remaining_chars,
+            )
+            context = chunk_to_context(
+                chunk,
+                source_uri=document.source_uri if document else None,
+                packed_chunks=packed_chunks,
+            )
             if hit is not None:
                 context.scores[f"{hit.source}_score"] = hit.score
             if rerank_score is not None:
                 context.scores["rerank_score"] = rerank_score
             contexts.append(context)
+            packed_chunk_ids.update(context.metadata["packed_chunk_ids"])
+            used_context_chars += len(context.content_markdown)
 
         trace = None
         if include_trace:
@@ -447,6 +483,10 @@ class Groundline:
                 trace["rerank"]["error"] = rerank_error
             trace["context"] = {
                 "final_items": len(contexts),
+                "context_window": context_window,
+                "max_context_chars": max_context_chars,
+                "used_context_chars": used_context_chars,
+                "skipped_items": skipped_contexts,
                 "contexts": [
                     {
                         "rank": rank,
@@ -455,6 +495,8 @@ class Groundline:
                         "title": context.title,
                         "section": context.section,
                         "scores": context.scores,
+                        "packed_chunk_ids": context.metadata.get("packed_chunk_ids", []),
+                        "chars": len(context.content_markdown),
                     }
                     for rank, context in enumerate(contexts, start=1)
                 ],

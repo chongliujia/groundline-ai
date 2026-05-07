@@ -107,6 +107,14 @@ def query(
         typer.Option("--filters", help="JSON object with additional exact-match filters."),
     ] = None,
     top_k: Annotated[int, typer.Option(help="Number of contexts to return.")] = 8,
+    context_window: Annotated[
+        int,
+        typer.Option(help="Number of adjacent chunks to pack on each side."),
+    ] = 0,
+    max_context_chars: Annotated[
+        int,
+        typer.Option(help="Maximum total context characters to return."),
+    ] = 12000,
     trace: Annotated[bool, typer.Option(help="Include retrieval trace.")] = False,
     json_output: Annotated[
         bool,
@@ -129,6 +137,8 @@ def query(
         tenant_id=tenant_id,
         filters=filters,
         top_k=top_k,
+        context_window=context_window,
+        max_context_chars=max_context_chars,
         include_trace=trace,
     )
     if json_output:

@@ -66,7 +66,13 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
 
     query = client.post(
         "/collections/demo/query",
-        json={"query": "住宿标准", "tenant_id": "default", "include_trace": True},
+        json={
+            "query": "住宿标准",
+            "tenant_id": "default",
+            "context_window": 1,
+            "max_context_chars": 12000,
+            "include_trace": True,
+        },
     )
     assert query.status_code == 200
     assert query.json()["contexts"][0]["doc_id"] == doc_id
@@ -74,6 +80,8 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert query.json()["trace"]["retrieval"]["bm25_candidates"][0]["doc_id"] == doc_id
     assert query.json()["trace"]["fusion"]["candidates"]
     assert query.json()["trace"]["context"]["contexts"][0]["doc_id"] == doc_id
+    assert query.json()["trace"]["context"]["context_window"] == 1
+    assert query.json()["contexts"][0]["metadata"]["packed_chunk_ids"]
 
     filtered_out = client.post(
         "/collections/demo/query",

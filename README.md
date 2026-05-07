@@ -138,6 +138,7 @@ Query supports exact-match filters on chunk/document fields and metadata:
 ```bash
 groundline query "住宿标准" --collection demo --domain finance
 groundline query "住宿标准" --collection demo --filters '{"metadata":{"department":"finance"}}'
+groundline query "住宿标准" --collection demo --context-window 1 --max-context-chars 8000
 ```
 
 The API uses the same filter object:
@@ -157,6 +158,10 @@ The API uses the same filter object:
 Use `--trace` to inspect retrieval internals. The trace includes routing inputs,
 BM25 candidates, raw and filtered vector candidates, RRF fusion candidates,
 rerank candidates, and the final context list.
+
+Context packing is off by default. Set `context_window` / `--context-window` to
+include adjacent chunks around each hit, and `max_context_chars` /
+`--max-context-chars` to cap the total packed context size.
 
 Repeated ingest skips unchanged files by `source_uri + content_hash`. Changed files
 reuse the existing `doc_id`, create a new version, and deactivate old chunks.

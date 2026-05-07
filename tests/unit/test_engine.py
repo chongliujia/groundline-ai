@@ -114,6 +114,51 @@ def test_engine_query_filters_by_metadata_and_document_fields(tmp_path: Path) ->
     assert missing_result.contexts == []
 
 
+def test_engine_packs_adjacent_chunks_with_context_budget(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text(
+        (
+            "# Policy\n\n"
+            "## Travel\n\ntravel approval rules.\n\n"
+            "## Hotel\n\nhotel standard reimbursement approval.\n\n"
+            "## Meal\n\nmeal reimbursement rules."
+        ),
+        encoding="utf-8",
+    )
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+
+    packed = engine.query(
+        "demo",
+        "hotel standard",
+        top_k=3,
+        context_window=1,
+        max_context_chars=10000,
+        include_trace=True,
+    )
+    budgeted = engine.query(
+        "demo",
+        "hotel standard",
+        top_k=3,
+        context_window=1,
+        max_context_chars=60,
+        include_trace=True,
+    )
+
+    assert packed.contexts
+    assert "travel approval rules" in packed.contexts[0].content_markdown
+    assert "hotel standard reimbursement approval" in packed.contexts[0].content_markdown
+    assert "meal reimbursement rules" in packed.contexts[0].content_markdown
+    assert len(packed.contexts[0].metadata["packed_chunk_ids"]) == 3
+    assert packed.trace is not None
+    assert packed.trace["context"]["context_window"] == 1
+    assert packed.trace["context"]["contexts"][0]["packed_chunk_ids"] == packed.contexts[
+        0
+    ].metadata["packed_chunk_ids"]
+    assert "hotel standard reimbursement approval" in budgeted.contexts[0].content_markdown
+    assert len(budgeted.contexts[0].metadata["packed_chunk_ids"]) == 1
+
+
 def test_engine_lists_collections_documents_and_chunks(tmp_path: Path) -> None:
     source = tmp_path / "policy.md"
     source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")

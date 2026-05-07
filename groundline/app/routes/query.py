@@ -19,5 +19,7 @@ def query_collection(collection_name: str, request: QueryRequest) -> QueryRespon
         user_groups=request.user_groups,
         filters=request.filters,
         top_k=request.top_k,
+        context_window=request.context_window,
+        max_context_chars=request.max_context_chars,
         include_trace=request.include_trace,
     )

@@ -175,6 +175,8 @@ class QueryRequest(GroundlineModel):
     tenant_id: str = "default"
     user_groups: list[str] = Field(default_factory=list)
     top_k: int = 8
+    context_window: int = Field(default=0, ge=0, le=5)
+    max_context_chars: int = Field(default=12000, ge=1)
     filters: dict[str, Any] = Field(default_factory=dict)
     include_trace: bool = False
 
