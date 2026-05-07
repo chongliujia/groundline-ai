@@ -66,6 +66,17 @@ Start local Qdrant:
 docker compose up qdrant
 ```
 
+Run the optional Qdrant integration test:
+
+```bash
+docker compose up -d qdrant
+GROUNDLINE_TEST_QDRANT=1 pytest tests/integration/test_qdrant.py
+```
+
+This test uses the dependency-free `hash` embedder and verifies that vectors are
+written to Qdrant and returned by vector search. It is skipped during normal
+`pytest` runs.
+
 Start the API:
 
 ```bash
