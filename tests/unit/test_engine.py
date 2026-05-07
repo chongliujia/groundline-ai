@@ -183,6 +183,8 @@ def test_engine_tombstones_document(tmp_path: Path) -> None:
 
     assert deleted.deleted is True
     assert deleted.chunks_deactivated >= 1
+    assert deleted.vector_points_deleted == 0
+    assert deleted.vector_error is None
     assert hidden_detail is None
     assert inactive_detail is not None
     assert inactive_detail.document.is_active is False

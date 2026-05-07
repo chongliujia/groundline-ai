@@ -233,7 +233,9 @@ class DeleteResponse(GroundlineModel):
     doc_id: str
     deleted: bool
     chunks_deactivated: int = 0
+    vector_points_deleted: int = 0
     reason: str | None = None
+    vector_error: str | None = None
 
 
 class DocumentDetail(GroundlineModel):

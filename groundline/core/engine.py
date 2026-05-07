@@ -193,11 +193,17 @@ class Groundline:
                 reason="document already inactive",
             )
         chunks_deactivated = self.metadata.tombstone_document(collection, doc_id)
+        vector_points_deleted, vector_error = self._try_delete_document_vectors(
+            collection,
+            doc_id,
+        )
         return DeleteResponse(
             collection=collection,
             doc_id=doc_id,
             deleted=True,
             chunks_deactivated=chunks_deactivated,
+            vector_points_deleted=vector_points_deleted,
+            vector_error=vector_error,
         )
 
     def ingest_path(
@@ -336,6 +342,7 @@ class Groundline:
         ).chunk(blocks, doc_id=doc_id, version_id=version_id)
 
         if existing_document:
+            self._try_delete_document_vectors(collection, doc_id)
             self.metadata.deactivate_versions_for_document(
                 collection,
                 doc_id,
@@ -595,6 +602,19 @@ class Groundline:
             return store.delete_collection(collection), None
         except (BackendUnavailableError, ImportError) as error:
             return False, str(error)
+
+    def _try_delete_document_vectors(
+        self,
+        collection: str,
+        doc_id: str,
+    ) -> tuple[int, str | None]:
+        if self.providers.embedding.provider.lower() in {"none", "disabled"}:
+            return 0, None
+        try:
+            store = QdrantVectorStore(url=self.settings.qdrant_url)
+            return store.delete_by_doc_id(collection, doc_id), None
+        except (BackendUnavailableError, ImportError) as error:
+            return 0, str(error)
 
     def _try_rerank(
         self,

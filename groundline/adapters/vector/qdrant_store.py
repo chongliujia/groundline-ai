@@ -93,6 +93,36 @@ class QdrantVectorStore:
         except Exception as error:  # pragma: no cover - depends on external Qdrant
             raise BackendUnavailableError(f"Qdrant collection delete failed: {error}") from error
 
+    def delete_by_doc_id(self, collection: str, doc_id: str) -> int:
+        try:
+            if not self.client.collection_exists(collection):
+                return 0
+            selector = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="doc_id",
+                        match=models.MatchValue(value=doc_id),
+                    )
+                ]
+            )
+            count = self.client.count(
+                collection_name=collection,
+                count_filter=selector,
+                exact=True,
+            ).count
+            if count == 0:
+                return 0
+            self.client.delete(
+                collection_name=collection,
+                points_selector=selector,
+                wait=True,
+            )
+            return int(count)
+        except Exception as error:  # pragma: no cover - depends on external Qdrant
+            raise BackendUnavailableError(
+                f"Qdrant document vector delete failed: {error}"
+            ) from error
+
     def _distance(self) -> models.Distance:
         value = self.distance.lower()
         if value == "dot":

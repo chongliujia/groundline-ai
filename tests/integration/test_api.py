@@ -113,6 +113,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     deleted = client.delete(f"/collections/demo/documents/{doc_id}")
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
+    assert deleted.json()["vector_points_deleted"] == 0
 
     query_after_delete = client.post(
         "/collections/demo/query",

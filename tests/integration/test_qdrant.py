@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 from groundline.core.config import Settings
 from groundline.core.engine import Groundline
@@ -52,8 +53,10 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
             include_trace=True,
             top_k=3,
         )
+        doc_id = ingest.documents[0].doc_id
 
         assert ingest.documents[0].chunk_count >= 1
+        assert _count_doc_points(client, collection, doc_id) == ingest.documents[0].chunk_count
         assert result.trace is not None
         assert result.trace["retrieval"]["vector_hits_raw"] > 0
         assert result.trace["retrieval"]["vector_hits"] > 0
@@ -62,8 +65,40 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
             "vector" in context.scores or "rrf_score" in context.scores
             for context in result.contexts
         )
+
+        source.write_text(
+            "# Policy\n\n## Meal\n\nmeal reimbursement approval",
+            encoding="utf-8",
+        )
+        updated = engine.ingest_path(source, collection=collection)
+
+        assert updated.documents[0].doc_id == doc_id
+        assert _count_doc_points(client, collection, doc_id) == updated.documents[0].chunk_count
+
+        deleted = engine.delete_document(collection, doc_id)
+
+        assert deleted.deleted is True
+        assert deleted.vector_points_deleted == updated.documents[0].chunk_count
+        assert _count_doc_points(client, collection, doc_id) == 0
     finally:
         try:
             client.delete_collection(collection)
         except Exception:
             pass
+
+
+def _count_doc_points(client: QdrantClient, collection: str, doc_id: str) -> int:
+    return int(
+        client.count(
+            collection_name=collection,
+            count_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="doc_id",
+                        match=models.MatchValue(value=doc_id),
+                    )
+                ]
+            ),
+            exact=True,
+        ).count
+    )

@@ -160,6 +160,8 @@ rerank candidates, and the final context list.
 
 Repeated ingest skips unchanged files by `source_uri + content_hash`. Changed files
 reuse the existing `doc_id`, create a new version, and deactivate old chunks.
+When embedding is enabled, Groundline also removes the previous document vectors
+from Qdrant before indexing the new version.
 
 Delete a document with a tombstone:
 
@@ -169,3 +171,5 @@ groundline delete document <doc_id> --collection demo
 
 Deletion is logical: documents and chunks are marked inactive and hidden from query
 and default inspect output. Use `--include-inactive` with `inspect` to audit them.
+When embedding is enabled, document delete also removes that document's Qdrant
+vectors by `doc_id`.
