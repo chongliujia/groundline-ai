@@ -37,11 +37,7 @@ ruff check groundline tests
 Run the local BM25-only demo without external API keys:
 
 ```bash
-groundline clear collection --collection quickstart --data-dir /tmp/groundline-quickstart
-groundline ingest examples/quickstart/docs --collection quickstart --data-dir /tmp/groundline-quickstart
-groundline query "住宿标准" --collection quickstart --trace --data-dir /tmp/groundline-quickstart
-groundline answer "住宿标准" --collection quickstart --trace --data-dir /tmp/groundline-quickstart
-groundline eval examples/quickstart/evalset.example.jsonl --collection quickstart --data-dir /tmp/groundline-quickstart
+groundline quickstart
 ```
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
@@ -181,6 +177,7 @@ Most CLI commands support `--json` for scripts and future UI integration:
 ```bash
 groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
 groundline providers --json
+groundline quickstart --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline answer "住宿标准" --collection demo --trace --json
 groundline inspect documents --collection demo --json

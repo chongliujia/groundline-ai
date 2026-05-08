@@ -71,6 +71,79 @@ def providers(
 
 
 @app.command()
+def quickstart(
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "quickstart",
+    docs_path: Annotated[Path, typer.Option(help="Quickstart docs path.")] = Path(
+        "examples/quickstart/docs"
+    ),
+    evalset: Annotated[Path, typer.Option(help="Quickstart eval JSONL path.")] = Path(
+        "examples/quickstart/evalset.example.jsonl"
+    ),
+    query_text: Annotated[str, typer.Option(help="Query text to run.")] = "住宿标准",
+    context_window: Annotated[
+        int,
+        typer.Option(help="Number of adjacent chunks to pack on each side."),
+    ] = 1,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        "/tmp/groundline-quickstart"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    cleared = engine.clear_collection(collection)
+    ingest_result = engine.ingest_path(docs_path, collection=collection)
+    query_result = engine.query(
+        collection=collection,
+        query=query_text,
+        context_window=context_window,
+        include_trace=True,
+    )
+    answer_result = engine.answer(
+        collection=collection,
+        query=query_text,
+        context_window=context_window,
+        include_trace=True,
+    )
+    eval_report = run_eval(
+        engine=engine,
+        collection=collection,
+        dataset_path=evalset,
+    )
+    payload = {
+        "collection": collection,
+        "data_dir": str(data_dir),
+        "cleared": cleared.model_dump(mode="json"),
+        "ingest": ingest_result.model_dump(mode="json"),
+        "query": query_result.model_dump(mode="json"),
+        "answer": answer_result.model_dump(mode="json"),
+        "eval": eval_report.model_dump(mode="json"),
+    }
+    if json_output:
+        _print_json(payload)
+        return
+
+    console.rule("[bold]Quickstart[/bold]")
+    console.print(f"Collection: {collection}")
+    console.print(f"Data dir: {data_dir}")
+    console.print(
+        f"Ingested {len(ingest_result.documents)} documents; "
+        f"skipped {len(ingest_result.skipped)} sources."
+    )
+    console.print(f"Query contexts: {len(query_result.contexts)}")
+    if answer_result.answer:
+        console.print(answer_result.answer)
+    else:
+        console.print(f"[yellow]Answer not generated[/yellow]: {answer_result.error}")
+    console.print(
+        f"Eval Recall@{eval_report.top_k}: {eval_report.metrics.recall_at_k:.3f}; "
+        f"MRR: {eval_report.metrics.mrr:.3f}"
+    )
+
+
+@app.command()
 def ingest(
     path: Annotated[Path, typer.Argument(help="File or directory to ingest.")],
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
