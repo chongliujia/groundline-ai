@@ -32,6 +32,21 @@ pytest
 ruff check groundline tests
 ```
 
+## Quickstart
+
+Run the local BM25-only demo without external API keys:
+
+```bash
+groundline clear collection --collection quickstart --data-dir /tmp/groundline-quickstart
+groundline ingest examples/quickstart/docs --collection quickstart --data-dir /tmp/groundline-quickstart
+groundline query "住宿标准" --collection quickstart --trace --data-dir /tmp/groundline-quickstart
+groundline answer "住宿标准" --collection quickstart --trace --data-dir /tmp/groundline-quickstart
+groundline eval examples/quickstart/evalset.example.jsonl --collection quickstart --data-dir /tmp/groundline-quickstart
+```
+
+The example evalset uses `gold_source_uris`, so it stays stable across runs even
+though Groundline generates fresh document ids on ingest.
+
 Provider API configuration lives in one local file:
 
 ```bash
@@ -148,7 +163,8 @@ Run retrieval eval:
 groundline eval ./evalset.jsonl --collection demo --top-k 8
 ```
 
-Eval JSONL rows support `query`, `gold_doc_ids`, `gold_chunk_ids`, and `query_type`.
+Eval JSONL rows support `query`, `gold_doc_ids`, `gold_chunk_ids`,
+`gold_source_uris`, and `query_type`.
 Eval reports include aggregate metrics plus per-query hit/miss diagnostics:
 retrieved contexts, matched gold ids, first hit rank, and retrieval trace details.
 

@@ -281,6 +281,7 @@ class EvalItem(GroundlineModel):
     query: str
     gold_chunk_ids: list[str] = Field(default_factory=list)
     gold_doc_ids: list[str] = Field(default_factory=list)
+    gold_source_uris: list[str] = Field(default_factory=list)
     query_type: str = "default"
 
 
@@ -310,6 +311,8 @@ class EvalQueryResult(GroundlineModel):
     query_type: str
     gold_chunk_ids: list[str] = Field(default_factory=list)
     gold_doc_ids: list[str] = Field(default_factory=list)
+    gold_source_uris: list[str] = Field(default_factory=list)
+    resolved_gold_doc_ids: list[str] = Field(default_factory=list)
     retrieved: list[EvalRetrievedContext] = Field(default_factory=list)
     recall_at_k: float
     mrr: float

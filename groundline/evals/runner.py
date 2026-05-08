@@ -58,16 +58,17 @@ def _score_item(
     )
     result_chunk_ids = [context.chunk_id for context in result.contexts]
     result_doc_ids = [context.doc_id for context in result.contexts]
+    resolved_gold_doc_ids = _resolve_gold_doc_ids(engine, collection, item)
 
     if item.gold_chunk_ids:
         gold = set(item.gold_chunk_ids)
         results = result_chunk_ids
     else:
-        gold = set(item.gold_doc_ids)
+        gold = set(resolved_gold_doc_ids)
         results = result_doc_ids
 
     matched_chunk_ids = _ordered_matches(result_chunk_ids[:top_k], set(item.gold_chunk_ids))
-    matched_doc_ids = _ordered_matches(result_doc_ids[:top_k], set(item.gold_doc_ids))
+    matched_doc_ids = _ordered_matches(result_doc_ids[:top_k], set(resolved_gold_doc_ids))
     recall = recall_at_k(results, gold, top_k)
     mrr = mean_reciprocal_rank(results, gold)
     return EvalQueryResult(
@@ -75,6 +76,8 @@ def _score_item(
         query_type=item.query_type,
         gold_chunk_ids=item.gold_chunk_ids,
         gold_doc_ids=item.gold_doc_ids,
+        gold_source_uris=item.gold_source_uris,
+        resolved_gold_doc_ids=resolved_gold_doc_ids,
         retrieved=[
             EvalRetrievedContext(
                 rank=rank,
@@ -104,6 +107,26 @@ def _aggregate(scores: list[tuple[float, float]]) -> EvalMetrics:
         mrr=sum(score[1] for score in scores) / len(scores),
         queries=len(scores),
     )
+
+
+def _resolve_gold_doc_ids(
+    engine: Groundline,
+    collection: str,
+    item: EvalItem,
+) -> list[str]:
+    doc_ids = list(item.gold_doc_ids)
+    if not item.gold_source_uris:
+        return doc_ids
+
+    source_uri_to_doc_id = {
+        document.source_uri: document.doc_id
+        for document in engine.list_documents(collection, include_inactive=True)
+    }
+    for source_uri in item.gold_source_uris:
+        doc_id = source_uri_to_doc_id.get(source_uri)
+        if doc_id is not None and doc_id not in doc_ids:
+            doc_ids.append(doc_id)
+    return doc_ids
 
 
 def _first_hit_rank(results: list[str], gold: set[str]) -> int | None:

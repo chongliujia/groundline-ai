@@ -1,3 +1,2 @@
-{"query":"住宿标准","gold_doc_ids":["replace_with_ingested_doc_id"],"query_type":"exact"}
-{"query":"travel reimbursement","gold_doc_ids":["replace_with_ingested_doc_id"],"query_type":"semantic"}
-
+{"query":"住宿标准","gold_source_uris":["examples/quickstart/docs/finance_policy.md"],"query_type":"exact"}
+{"query":"travel reimbursement","gold_source_uris":["examples/quickstart/docs/finance_policy.md"],"query_type":"semantic"}

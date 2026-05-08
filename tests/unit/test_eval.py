@@ -14,13 +14,17 @@ def test_eval_metrics() -> None:
 
 def test_load_eval_dataset(tmp_path: Path) -> None:
     path = tmp_path / "eval.jsonl"
-    path.write_text('{"query":"hello","gold_doc_ids":["doc_1"]}\n', encoding="utf-8")
+    path.write_text(
+        '{"query":"hello","gold_doc_ids":["doc_1"],"gold_source_uris":["a.md"]}\n',
+        encoding="utf-8",
+    )
 
     items = load_eval_dataset(path)
 
     assert len(items) == 1
     assert items[0].query == "hello"
     assert items[0].query_type == "default"
+    assert items[0].gold_source_uris == ["a.md"]
 
 
 def test_run_eval_with_gold_doc_ids(tmp_path: Path) -> None:
@@ -83,3 +87,30 @@ def test_run_eval_reports_misses(tmp_path: Path) -> None:
     assert report.queries[0].first_hit_rank is None
     assert report.queries[0].matched_doc_ids == []
     assert report.queries[0].retrieved
+
+
+def test_run_eval_resolves_gold_source_uris(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    ingest = engine.ingest_path(source, collection="demo")
+
+    evalset = tmp_path / "eval.jsonl"
+    evalset.write_text(
+        json.dumps(
+            {
+                "query": "住宿标准",
+                "gold_source_uris": [str(source)],
+                "query_type": "source_uri",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = run_eval(engine, "demo", evalset, top_k=3)
+
+    assert report.metrics.recall_at_k == 1.0
+    assert report.queries[0].gold_source_uris == [str(source)]
+    assert report.queries[0].resolved_gold_doc_ids == [ingest.documents[0].doc_id]
+    assert report.queries[0].matched_doc_ids == [ingest.documents[0].doc_id]
