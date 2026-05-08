@@ -258,6 +258,18 @@ class CollectionOperationResponse(GroundlineModel):
     vector_error: str | None = None
 
 
+class ReindexResponse(GroundlineModel):
+    collection: str
+    doc_id: str | None = None
+    ok: bool
+    chunks_considered: int = 0
+    chunks_indexed: int = 0
+    vector_collection_deleted: bool = False
+    vector_points_deleted: int = 0
+    reason: str | None = None
+    vector_error: str | None = None
+
+
 class DeleteResponse(GroundlineModel):
     collection: str
     doc_id: str

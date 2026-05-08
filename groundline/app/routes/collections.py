@@ -12,6 +12,7 @@ from groundline.core.schemas import (
     DocumentDetail,
     IngestRequest,
     IngestResponse,
+    ReindexResponse,
 )
 
 router = APIRouter(prefix="/collections", tags=["collections"])
@@ -35,6 +36,18 @@ def clear_collection(collection_name: str) -> CollectionOperationResponse:
     engine = Groundline(get_settings())
     result = engine.clear_collection(collection_name)
     if not result.ok:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
+
+
+@router.post("/{collection_name}/reindex", response_model=ReindexResponse)
+def reindex_collection(
+    collection_name: str,
+    doc_id: str | None = None,
+) -> ReindexResponse:
+    engine = Groundline(get_settings())
+    result = engine.reindex_collection(collection_name, doc_id=doc_id)
+    if not result.ok and result.reason in {"collection not found", "document not found"}:
         raise HTTPException(status_code=404, detail=result.reason)
     return result
 

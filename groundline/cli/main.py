@@ -11,7 +11,7 @@ from rich.table import Table
 
 from groundline.core.config import Settings
 from groundline.core.engine import Groundline
-from groundline.core.schemas import CollectionOperationResponse
+from groundline.core.schemas import CollectionOperationResponse, ReindexResponse
 from groundline.evals.runner import run_eval
 
 app = typer.Typer(help="Groundline CLI")
@@ -141,6 +141,29 @@ def quickstart(
         f"Eval Recall@{eval_report.top_k}: {eval_report.metrics.recall_at_k:.3f}; "
         f"MRR: {eval_report.metrics.mrr:.3f}"
     )
+
+
+@app.command()
+def reindex(
+    target: Annotated[str, typer.Argument(help="Currently supported: collection.")] = "collection",
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
+    doc_id: Annotated[str | None, typer.Option(help="Optional document id to reindex.")] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    if target.lower() != "collection":
+        raise typer.BadParameter("target must be collection")
+    engine = Groundline(Settings(data_dir=data_dir))
+    result = engine.reindex_collection(collection, doc_id=doc_id)
+    if json_output:
+        _print_json_model(result)
+        return
+    _print_reindex_result(result)
 
 
 @app.command()
@@ -798,6 +821,20 @@ def _print_collection_operation(result: CollectionOperationResponse) -> None:
     )
     if result.vector_error:
         console.print(f"[yellow]Vector cleanup skipped[/yellow]: {result.vector_error}")
+
+
+def _print_reindex_result(result: ReindexResponse) -> None:
+    if not result.ok:
+        console.print(
+            f"[yellow]Reindex failed[/yellow] {result.collection}: "
+            f"{result.reason or result.vector_error}"
+        )
+        return
+    scope = f"document {result.doc_id}" if result.doc_id else "collection"
+    console.print(
+        f"Reindexed {scope} in {result.collection}; "
+        f"indexed {result.chunks_indexed}/{result.chunks_considered} chunks."
+    )
 
 
 def _print_json_model(model: BaseModel) -> None:

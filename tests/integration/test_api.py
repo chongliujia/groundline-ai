@@ -70,6 +70,11 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert chunks.status_code == 200
     assert chunks.json()["chunks"]
 
+    reindex = client.post("/collections/demo/reindex")
+    assert reindex.status_code == 200
+    assert reindex.json()["ok"] is False
+    assert reindex.json()["reason"] == "embedding disabled"
+
     query = client.post(
         "/collections/demo/query",
         json={

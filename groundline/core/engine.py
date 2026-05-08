@@ -32,6 +32,7 @@ from groundline.core.schemas import (
     ProviderStatus,
     ProviderStatusResponse,
     QueryResponse,
+    ReindexResponse,
     RetrievalHit,
     SkippedSource,
     utc_now,
@@ -217,6 +218,82 @@ class Groundline:
             chunks_removed=chunks,
             vector_collection_deleted=vector_deleted,
             vector_error=vector_error,
+        )
+
+    def reindex_collection(
+        self,
+        collection: str,
+        doc_id: str | None = None,
+    ) -> ReindexResponse:
+        if not self.metadata.collection_exists(collection):
+            return ReindexResponse(
+                collection=collection,
+                doc_id=doc_id,
+                ok=False,
+                reason="collection not found",
+            )
+        if doc_id is not None and self.get_document(collection, doc_id) is None:
+            return ReindexResponse(
+                collection=collection,
+                doc_id=doc_id,
+                ok=False,
+                reason="document not found",
+            )
+
+        chunks = self.list_chunks(collection, doc_id=doc_id)
+        if self.providers.embedding.provider.lower() in {"none", "disabled"}:
+            return ReindexResponse(
+                collection=collection,
+                doc_id=doc_id,
+                ok=False,
+                chunks_considered=len(chunks),
+                reason="embedding disabled",
+                vector_error="embedding disabled",
+            )
+        if doc_id is None:
+            vector_collection_deleted, vector_error = self._try_delete_vector_collection(
+                collection
+            )
+            vector_points_deleted = 0
+        else:
+            vector_points_deleted, vector_error = self._try_delete_document_vectors(
+                collection,
+                doc_id,
+            )
+            vector_collection_deleted = False
+
+        if vector_error:
+            return ReindexResponse(
+                collection=collection,
+                doc_id=doc_id,
+                ok=False,
+                chunks_considered=len(chunks),
+                vector_collection_deleted=vector_collection_deleted,
+                vector_points_deleted=vector_points_deleted,
+                vector_error=vector_error,
+            )
+
+        index_error = self._try_index_vectors(collection, chunks)
+        if index_error:
+            return ReindexResponse(
+                collection=collection,
+                doc_id=doc_id,
+                ok=False,
+                chunks_considered=len(chunks),
+                vector_collection_deleted=vector_collection_deleted,
+                vector_points_deleted=vector_points_deleted,
+                reason=index_error,
+                vector_error=index_error,
+            )
+
+        return ReindexResponse(
+            collection=collection,
+            doc_id=doc_id,
+            ok=True,
+            chunks_considered=len(chunks),
+            chunks_indexed=len(chunks),
+            vector_collection_deleted=vector_collection_deleted,
+            vector_points_deleted=vector_points_deleted,
         )
 
     def delete_document(self, collection: str, doc_id: str) -> DeleteResponse:

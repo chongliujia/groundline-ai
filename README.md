@@ -144,6 +144,7 @@ POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
 POST   /collections/{collection}/answer
 POST   /collections/{collection}/clear
+POST   /collections/{collection}/reindex
 GET    /collections/{collection}/documents
 GET    /collections/{collection}/documents/{doc_id}
 GET    /collections/{collection}/documents/{doc_id}/versions
@@ -185,6 +186,7 @@ groundline inspect document --collection demo --doc-id <doc_id> --json
 groundline inspect versions --collection demo --doc-id <doc_id> --json
 groundline eval ./evalset.jsonl --collection demo --json
 groundline clear collection --collection demo --json
+groundline reindex collection --collection demo --json
 groundline delete collection demo --json
 groundline delete document <doc_id> --collection demo --json
 ```

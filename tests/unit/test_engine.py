@@ -355,3 +355,22 @@ def test_engine_clear_missing_collection(tmp_path: Path) -> None:
     assert cleared.reason == "collection not found"
     assert deleted.ok is False
     assert deleted.reason == "collection not found"
+
+
+def test_engine_reindex_reports_disabled_embedding(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    ingest = engine.ingest_path(source, collection="demo")
+
+    collection_result = engine.reindex_collection("demo")
+    document_result = engine.reindex_collection("demo", doc_id=ingest.documents[0].doc_id)
+    missing_document = engine.reindex_collection("demo", doc_id="missing")
+
+    assert collection_result.ok is False
+    assert collection_result.chunks_considered >= 1
+    assert collection_result.reason == "embedding disabled"
+    assert document_result.ok is False
+    assert document_result.reason == "embedding disabled"
+    assert missing_document.ok is False
+    assert missing_document.reason == "document not found"

@@ -57,6 +57,15 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
 
         assert ingest.documents[0].chunk_count >= 1
         assert _count_doc_points(client, collection, doc_id) == ingest.documents[0].chunk_count
+        client.delete_collection(collection)
+        assert _count_collection_points(client, collection) == 0
+
+        reindexed = engine.reindex_collection(collection)
+
+        assert reindexed.ok is True
+        assert reindexed.chunks_indexed == ingest.documents[0].chunk_count
+        assert _count_doc_points(client, collection, doc_id) == ingest.documents[0].chunk_count
+
         assert result.trace is not None
         assert result.trace["retrieval"]["vector_hits_raw"] > 0
         assert result.trace["retrieval"]["vector_hits"] > 0
@@ -88,6 +97,8 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
 
 
 def _count_doc_points(client: QdrantClient, collection: str, doc_id: str) -> int:
+    if not client.collection_exists(collection):
+        return 0
     return int(
         client.count(
             collection_name=collection,
@@ -102,3 +113,9 @@ def _count_doc_points(client: QdrantClient, collection: str, doc_id: str) -> int
             exact=True,
         ).count
     )
+
+
+def _count_collection_points(client: QdrantClient, collection: str) -> int:
+    if not client.collection_exists(collection):
+        return 0
+    return int(client.count(collection_name=collection, exact=True).count)
