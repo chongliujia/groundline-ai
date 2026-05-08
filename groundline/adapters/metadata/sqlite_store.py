@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from groundline.core.schemas import Chunk, Document, DocumentVersion, utc_now
+from groundline.core.schemas import Chunk, Document, DocumentVersion, PipelineRun, utc_now
 
 
 class SQLiteMetadataStore:
@@ -57,6 +57,31 @@ class SQLiteMetadataStore:
                     payload TEXT NOT NULL,
                     PRIMARY KEY (collection_name, chunk_id)
                 )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_runs (
+                    run_id TEXT PRIMARY KEY,
+                    collection_name TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_pipeline_runs_collection_started
+                ON pipeline_runs (collection_name, started_at DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_pipeline_runs_operation_started
+                ON pipeline_runs (operation, started_at DESC)
                 """
             )
 
@@ -365,3 +390,61 @@ class SQLiteMetadataStore:
                 (collection, chunk_id),
             ).fetchone()
         return Chunk.model_validate_json(row[0]) if row else None
+
+    def put_pipeline_run(self, run: PipelineRun) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO pipeline_runs
+                (run_id, collection_name, operation, status, started_at, finished_at, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.collection,
+                    run.operation,
+                    run.status,
+                    run.started_at.isoformat(),
+                    run.finished_at.isoformat() if run.finished_at else None,
+                    run.model_dump_json(),
+                ),
+            )
+
+    def list_pipeline_runs(
+        self,
+        collection: str | None = None,
+        operation: str | None = None,
+        limit: int = 20,
+    ) -> list[PipelineRun]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if collection is not None:
+            clauses.append("collection_name = ?")
+            params.append(collection)
+        if operation is not None:
+            clauses.append("operation = ?")
+            params.append(operation)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT payload FROM pipeline_runs
+                {where}
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [PipelineRun.model_validate_json(row[0]) for row in rows]
+
+    def get_pipeline_run(self, run_id: str) -> PipelineRun | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT payload FROM pipeline_runs
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        return PipelineRun.model_validate_json(row[0]) if row else None

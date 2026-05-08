@@ -13,6 +13,7 @@ from groundline.core.schemas import (
     DocumentDetail,
     IngestRequest,
     IngestResponse,
+    PipelineRun,
     ReindexResponse,
 )
 
@@ -44,6 +45,29 @@ def collection_health(
     )
     if not result.exists:
         raise HTTPException(status_code=404, detail=result.reason)
+    return result
+
+
+@router.get("/{collection_name}/pipeline-runs", response_model=list[PipelineRun])
+def list_pipeline_runs(
+    collection_name: str,
+    operation: str | None = None,
+    limit: int = 20,
+) -> list[PipelineRun]:
+    engine = Groundline(get_settings())
+    return engine.list_pipeline_runs(
+        collection=collection_name,
+        operation=operation,
+        limit=limit,
+    )
+
+
+@router.get("/{collection_name}/pipeline-runs/{run_id}", response_model=PipelineRun)
+def get_pipeline_run(collection_name: str, run_id: str) -> PipelineRun:
+    engine = Groundline(get_settings())
+    result = engine.get_pipeline_run(run_id)
+    if result is None or result.collection != collection_name:
+        raise HTTPException(status_code=404, detail="pipeline run not found")
     return result
 
 

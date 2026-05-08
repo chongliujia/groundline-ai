@@ -14,6 +14,7 @@ from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     CollectionHealthReport,
     CollectionOperationResponse,
+    PipelineRun,
     ReindexResponse,
 )
 from groundline.evals.runner import run_eval
@@ -98,6 +99,43 @@ def health(
         _print_json_model(result)
         return
     _print_collection_health(result)
+
+
+@app.command()
+def runs(
+    collection: Annotated[str | None, typer.Option(help="Filter by collection name.")] = None,
+    operation: Annotated[str | None, typer.Option(help="Filter by operation.")] = None,
+    run_id: Annotated[str | None, typer.Option(help="Show a single pipeline run.")] = None,
+    limit: Annotated[int, typer.Option(help="Maximum runs to display.")] = 20,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    if run_id is not None:
+        run = engine.get_pipeline_run(run_id)
+        if json_output:
+            _print_json({"run": run.model_dump(mode="json") if run else None})
+            return
+        if run is None:
+            console.print(f"[yellow]Pipeline run not found[/yellow] {run_id}")
+            return
+        _print_pipeline_run(run)
+        return
+
+    runs = engine.list_pipeline_runs(
+        collection=collection,
+        operation=operation,
+        limit=limit,
+    )
+    if json_output:
+        _print_json({"runs": [run.model_dump(mode="json") for run in runs]})
+        return
+    _print_pipeline_runs(runs)
 
 
 @app.command()
@@ -556,6 +594,53 @@ def _print_collection_health(result: CollectionHealthReport) -> None:
             "yes" if document.needs_reindex else "no",
         )
     console.print(documents)
+
+
+def _print_pipeline_runs(runs: list[PipelineRun]) -> None:
+    table = Table(title="Pipeline Runs")
+    table.add_column("Run ID")
+    table.add_column("Collection")
+    table.add_column("Operation")
+    table.add_column("Status")
+    table.add_column("Events", justify="right")
+    table.add_column("Started")
+    for run in runs:
+        table.add_row(
+            run.run_id,
+            run.collection,
+            run.operation,
+            run.status,
+            str(len(run.events)),
+            run.started_at.isoformat(),
+        )
+    console.print(table)
+
+
+def _print_pipeline_run(run: PipelineRun) -> None:
+    table = Table(title=f"Pipeline Run: {run.run_id}")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Collection", run.collection)
+    table.add_row("Operation", run.operation)
+    table.add_row("Status", run.status)
+    table.add_row("Duration", "" if run.duration_ms is None else f"{run.duration_ms} ms")
+    table.add_row("Started", run.started_at.isoformat())
+    table.add_row("Finished", run.finished_at.isoformat() if run.finished_at else "")
+    console.print(table)
+
+    events = Table(title="Events")
+    events.add_column("Stage")
+    events.add_column("Status")
+    events.add_column("Message")
+    events.add_column("Document ID")
+    for event in run.events:
+        events.add_row(
+            event.stage,
+            event.status,
+            event.message or "",
+            event.doc_id or "",
+        )
+    console.print(events)
 
 
 def _print_eval_queries(report: BaseModel) -> None:

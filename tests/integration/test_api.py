@@ -105,6 +105,16 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert query.json()["trace"]["context"]["context_window"] == 1
     assert query.json()["contexts"][0]["metadata"]["packed_chunk_ids"]
     assert query.json()["pipeline"]["operation"] == "query"
+    query_run_id = query.json()["pipeline"]["run_id"]
+
+    pipeline_runs = client.get("/collections/demo/pipeline-runs")
+    assert pipeline_runs.status_code == 200
+    assert pipeline_runs.json()[0]["operation"] == "query"
+
+    pipeline_run = client.get(f"/collections/demo/pipeline-runs/{query_run_id}")
+    assert pipeline_run.status_code == 200
+    assert pipeline_run.json()["run_id"] == query_run_id
+    assert pipeline_run.json()["events"][-1]["stage"] == "context_pack"
 
     filtered_out = client.post(
         "/collections/demo/query",

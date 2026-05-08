@@ -141,6 +141,8 @@ GET    /providers
 POST   /collections
 GET    /collections
 GET    /collections/{collection}/health
+GET    /collections/{collection}/pipeline-runs
+GET    /collections/{collection}/pipeline-runs/{run_id}
 POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
 POST   /collections/{collection}/answer
@@ -180,6 +182,7 @@ Most CLI commands support `--json` for scripts and future UI integration:
 groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
 groundline providers --json
 groundline health --collection demo --json
+groundline runs --collection demo --json
 groundline quickstart --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline answer "住宿标准" --collection demo --trace --json
@@ -197,6 +200,8 @@ Operational commands return a reusable `pipeline` object in JSON/API responses.
 It contains a `run_id`, operation status, and ordered step events such as parse,
 chunk, vector index, retrieval, rerank, context packing, and reindex. The shape is
 stable enough for demos, diagnostics, logs, and the future Web UI to consume.
+Pipeline runs are also persisted locally, so `groundline runs --collection demo`
+can inspect recent operation history after the original response is gone.
 
 Query supports exact-match filters on chunk/document fields and metadata:
 

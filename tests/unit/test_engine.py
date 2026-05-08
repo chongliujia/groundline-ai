@@ -40,6 +40,12 @@ def test_engine_ingests_and_queries_markdown(tmp_path: Path) -> None:
     assert result.trace["fusion"]["candidates"][0]["source"] == "rrf"
     assert result.trace["context"]["contexts"][0]["chunk_id"] == result.contexts[0].chunk_id
 
+    persisted_runs = engine.list_pipeline_runs(collection="demo")
+    persisted_query = engine.get_pipeline_run(result.pipeline.run_id)
+    assert [run.operation for run in persisted_runs[:2]] == ["query", "ingest"]
+    assert persisted_query is not None
+    assert persisted_query.events[-1].stage == "context_pack"
+
 
 def test_engine_reports_provider_status_without_secret_values(
     tmp_path: Path,
@@ -422,3 +428,25 @@ def test_engine_collection_health_reports_metadata_and_disabled_vectors(
     assert missing.ok is False
     assert missing.status == "missing"
     assert missing.reason == "collection not found"
+
+
+def test_engine_pipeline_history_filters_and_survives_collection_delete(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+    engine.query("demo", "住宿标准")
+    deleted = engine.delete_collection("demo")
+
+    all_runs = engine.list_pipeline_runs(limit=10)
+    ingest_runs = engine.list_pipeline_runs(collection="demo", operation="ingest")
+    delete_run = engine.get_pipeline_run(deleted.pipeline.run_id)
+
+    assert deleted.ok is True
+    assert "demo" not in engine.list_collections()
+    assert [run.operation for run in all_runs[:3]] == ["delete", "query", "ingest"]
+    assert len(ingest_runs) == 1
+    assert delete_run is not None
+    assert delete_run.collection == "demo"

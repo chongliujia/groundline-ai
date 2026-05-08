@@ -18,7 +18,7 @@ from groundline.core.errors import (
 )
 from groundline.core.hashing import hash_file
 from groundline.core.ids import new_id
-from groundline.core.pipeline import PipelineRecorder
+from groundline.core.pipeline import PipelineRecorder, RunStatus
 from groundline.core.schemas import (
     AnswerResponse,
     Chunk,
@@ -32,6 +32,7 @@ from groundline.core.schemas import (
     GroundedContext,
     IngestedDocument,
     IngestResponse,
+    PipelineRun,
     ProviderStatus,
     ProviderStatusResponse,
     QueryResponse,
@@ -63,6 +64,21 @@ class Groundline:
 
     def list_collections(self) -> list[str]:
         return self.metadata.list_collections()
+
+    def list_pipeline_runs(
+        self,
+        collection: str | None = None,
+        operation: str | None = None,
+        limit: int = 20,
+    ) -> list[PipelineRun]:
+        return self.metadata.list_pipeline_runs(
+            collection=collection,
+            operation=operation,
+            limit=max(limit, 1),
+        )
+
+    def get_pipeline_run(self, run_id: str) -> PipelineRun | None:
+        return self.metadata.get_pipeline_run(run_id)
 
     def provider_status(self) -> ProviderStatusResponse:
         providers = self.providers
@@ -121,7 +137,7 @@ class Groundline:
                 status="missing",
                 vector_index=VectorIndexHealth(enabled=False),
                 reason="collection not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
 
         documents = self.list_documents(collection, include_inactive=True)
@@ -231,7 +247,8 @@ class Groundline:
             latest_chunks=len(latest_chunks),
             vector_index=vector_index,
             documents=document_reports,
-            pipeline=pipeline.complete(
+            pipeline=self._complete_pipeline(
+                pipeline,
                 status="failed" if status == "vector_unavailable" else "completed",
                 metadata={"status": status},
             ),
@@ -326,7 +343,7 @@ class Groundline:
                 operation="clear",
                 ok=False,
                 reason="collection not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         documents, versions, chunks = self.metadata.clear_collection(collection)
         pipeline.event(
@@ -353,7 +370,7 @@ class Groundline:
             chunks_removed=chunks,
             vector_collection_deleted=vector_deleted,
             vector_error=vector_error,
-            pipeline=pipeline.complete(),
+            pipeline=self._complete_pipeline(pipeline),
         )
 
     def delete_collection(self, collection: str) -> CollectionOperationResponse:
@@ -365,7 +382,7 @@ class Groundline:
                 operation="delete",
                 ok=False,
                 reason="collection not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         documents, versions, chunks = self.metadata.delete_collection(collection)
         pipeline.event(
@@ -392,7 +409,7 @@ class Groundline:
             chunks_removed=chunks,
             vector_collection_deleted=vector_deleted,
             vector_error=vector_error,
-            pipeline=pipeline.complete(),
+            pipeline=self._complete_pipeline(pipeline),
         )
 
     def reindex_collection(
@@ -408,7 +425,7 @@ class Groundline:
                 doc_id=doc_id,
                 ok=False,
                 reason="collection not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         if doc_id is not None and self.get_document(collection, doc_id) is None:
             pipeline.event(
@@ -422,7 +439,7 @@ class Groundline:
                 doc_id=doc_id,
                 ok=False,
                 reason="document not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
 
         chunks = self.list_chunks(collection, doc_id=doc_id)
@@ -440,7 +457,7 @@ class Groundline:
                 chunks_considered=len(chunks),
                 reason="embedding disabled",
                 vector_error="embedding disabled",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         if doc_id is None:
             vector_collection_deleted, vector_error = self._try_delete_vector_collection(
@@ -476,7 +493,7 @@ class Groundline:
                 vector_collection_deleted=vector_collection_deleted,
                 vector_points_deleted=vector_points_deleted,
                 vector_error=vector_error,
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
 
         index_error = self._try_index_vectors(collection, chunks)
@@ -496,7 +513,7 @@ class Groundline:
                 vector_points_deleted=vector_points_deleted,
                 reason=index_error,
                 vector_error=index_error,
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
 
         return ReindexResponse(
@@ -507,7 +524,10 @@ class Groundline:
             chunks_indexed=len(chunks),
             vector_collection_deleted=vector_collection_deleted,
             vector_points_deleted=vector_points_deleted,
-            pipeline=pipeline.complete(metadata={"chunks_indexed": len(chunks)}),
+            pipeline=self._complete_pipeline(
+                pipeline,
+                metadata={"chunks_indexed": len(chunks)},
+            ),
         )
 
     def delete_document(self, collection: str, doc_id: str) -> DeleteResponse:
@@ -525,7 +545,7 @@ class Groundline:
                 doc_id=doc_id,
                 deleted=False,
                 reason="document not found",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         if not document.is_active:
             pipeline.event(
@@ -539,7 +559,7 @@ class Groundline:
                 doc_id=doc_id,
                 deleted=False,
                 reason="document already inactive",
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
         chunks_deactivated = self.metadata.tombstone_document(collection, doc_id)
         pipeline.event(
@@ -565,7 +585,7 @@ class Groundline:
             chunks_deactivated=chunks_deactivated,
             vector_points_deleted=vector_points_deleted,
             vector_error=vector_error,
-            pipeline=pipeline.complete(),
+            pipeline=self._complete_pipeline(pipeline),
         )
 
     def ingest_path(
@@ -624,7 +644,8 @@ class Groundline:
             collection=collection,
             documents=documents,
             skipped=skipped,
-            pipeline=pipeline.complete(
+            pipeline=self._complete_pipeline(
+                pipeline,
                 metadata={"documents": len(documents), "skipped": len(skipped)}
             ),
         )
@@ -981,7 +1002,7 @@ class Groundline:
             query=query,
             contexts=contexts,
             trace=trace,
-            pipeline=pipeline.complete(metadata={"contexts": len(contexts)}),
+            pipeline=self._complete_pipeline(pipeline, metadata={"contexts": len(contexts)}),
         )
 
     def answer(
@@ -1031,7 +1052,7 @@ class Groundline:
                     contexts=query_response.contexts,
                     trace=query_response.trace,
                     error="llm disabled",
-                    pipeline=pipeline.complete(status="failed"),
+                    pipeline=self._complete_pipeline(pipeline, status="failed"),
                 )
             messages = build_answer_messages(
                 query=query,
@@ -1048,7 +1069,7 @@ class Groundline:
                 answer=answer_text,
                 contexts=query_response.contexts,
                 trace=query_response.trace,
-                pipeline=pipeline.complete(),
+                pipeline=self._complete_pipeline(pipeline),
             )
         except (BackendUnavailableError, ProviderConfigurationError, ImportError) as error:
             pipeline.event("llm_generate", status="failed", message=str(error))
@@ -1057,7 +1078,7 @@ class Groundline:
                 contexts=query_response.contexts,
                 trace=query_response.trace,
                 error=str(error),
-                pipeline=pipeline.complete(status="failed"),
+                pipeline=self._complete_pipeline(pipeline, status="failed"),
             )
 
     @staticmethod
@@ -1226,6 +1247,16 @@ class Groundline:
             return reranker.rerank(query, candidates), None
         except (ProviderConfigurationError, ImportError) as error:
             return [(chunk, None) for chunk in candidates], str(error)
+
+    def _complete_pipeline(
+        self,
+        pipeline: PipelineRecorder,
+        status: RunStatus = "completed",
+        metadata: dict[str, object] | None = None,
+    ) -> PipelineRun:
+        run = pipeline.complete(status=status, metadata=metadata)
+        self.metadata.put_pipeline_run(run)
+        return run
 
     @staticmethod
     def _count_chunks_by_doc(chunks: list[Chunk]) -> dict[str, int]:
