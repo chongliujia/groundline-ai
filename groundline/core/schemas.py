@@ -199,6 +199,22 @@ class AnswerResponse(GroundlineModel):
     error: str | None = None
 
 
+class ProviderStatus(GroundlineModel):
+    name: Literal["llm", "embedding", "rerank"]
+    provider: str
+    model: str
+    base_url: str
+    endpoint_path: str
+    api_key_env: str
+    api_key_configured: bool
+    timeout_seconds: int
+    dimension: int | None = None
+
+
+class ProviderStatusResponse(GroundlineModel):
+    providers: list[ProviderStatus] = Field(default_factory=list)
+
+
 class IngestRequest(GroundlineModel):
     source_uri: str
     tenant_id: str = "default"

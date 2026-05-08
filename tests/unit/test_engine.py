@@ -30,6 +30,35 @@ def test_engine_ingests_and_queries_markdown(tmp_path: Path) -> None:
     assert result.trace["context"]["contexts"][0]["chunk_id"] == result.contexts[0].chunk_id
 
 
+def test_engine_reports_provider_status_without_secret_values(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "groundline.toml"
+    config_path.write_text(
+        """
+        [llm]
+        provider = "http"
+        model = "chat-model"
+        base_url = "https://provider.example/v1"
+        endpoint_path = "/chat/completions"
+        api_key_env = "GROUNDLINE_LLM_API_KEY"
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GROUNDLINE_LLM_API_KEY", "secret")
+    engine = Groundline(Settings(data_dir=tmp_path / "data", provider_config_path=config_path))
+
+    status = engine.provider_status()
+
+    llm = status.providers[0]
+    assert llm.name == "llm"
+    assert llm.provider == "http"
+    assert llm.api_key_env == "GROUNDLINE_LLM_API_KEY"
+    assert llm.api_key_configured is True
+    assert "secret" not in status.model_dump_json()
+
+
 def test_engine_skips_reserved_pdf_parser(tmp_path: Path) -> None:
     source = tmp_path / "demo.pdf"
     source.write_bytes(b"%PDF placeholder")

@@ -36,6 +36,41 @@ def init(
 
 
 @app.command()
+def providers(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    result = engine.provider_status()
+    if json_output:
+        _print_json_model(result)
+        return
+
+    table = Table(title="Providers")
+    table.add_column("Name")
+    table.add_column("Provider")
+    table.add_column("Model")
+    table.add_column("Base URL")
+    table.add_column("Endpoint")
+    table.add_column("API Key")
+    for provider in result.providers:
+        table.add_row(
+            provider.name,
+            provider.provider,
+            provider.model,
+            provider.base_url,
+            provider.endpoint_path,
+            "set" if provider.api_key_configured else "missing",
+        )
+    console.print(table)
+
+
+@app.command()
 def ingest(
     path: Annotated[Path, typer.Argument(help="File or directory to ingest.")],
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",

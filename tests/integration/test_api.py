@@ -9,6 +9,7 @@ from groundline.app.main import create_app
 def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("GROUNDLINE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("GROUNDLINE_PROVIDER_CONFIG_PATH", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("GROUNDLINE_EMBEDDING_API_KEY", "secret")
     source = tmp_path / "policy.md"
     source.write_text(
         "# Policy\n\n## Hotel\n\n差旅住宿标准是一线城市 800 元。",
@@ -19,6 +20,11 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+
+    providers = client.get("/providers")
+    assert providers.status_code == 200
+    assert providers.json()["providers"][0]["name"] == "llm"
+    assert "secret" not in providers.text
 
     created = client.post("/collections", params={"name": "demo"})
     assert created.status_code == 200

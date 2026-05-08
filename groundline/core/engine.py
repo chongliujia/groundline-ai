@@ -29,6 +29,8 @@ from groundline.core.schemas import (
     GroundedContext,
     IngestedDocument,
     IngestResponse,
+    ProviderStatus,
+    ProviderStatusResponse,
     QueryResponse,
     RetrievalHit,
     SkippedSource,
@@ -56,6 +58,44 @@ class Groundline:
 
     def list_collections(self) -> list[str]:
         return self.metadata.list_collections()
+
+    def provider_status(self) -> ProviderStatusResponse:
+        providers = self.providers
+        return ProviderStatusResponse(
+            providers=[
+                ProviderStatus(
+                    name="llm",
+                    provider=providers.llm.provider,
+                    model=providers.llm.model,
+                    base_url=providers.llm.base_url,
+                    endpoint_path=providers.llm.endpoint_path,
+                    api_key_env=providers.llm.api_key_env,
+                    api_key_configured=bool(providers.llm.api_key),
+                    timeout_seconds=providers.llm.timeout_seconds,
+                ),
+                ProviderStatus(
+                    name="embedding",
+                    provider=providers.embedding.provider,
+                    model=providers.embedding.model,
+                    base_url=providers.embedding.base_url,
+                    endpoint_path=providers.embedding.endpoint_path,
+                    api_key_env=providers.embedding.api_key_env,
+                    api_key_configured=bool(providers.embedding.api_key),
+                    timeout_seconds=providers.embedding.timeout_seconds,
+                    dimension=providers.embedding.dimension,
+                ),
+                ProviderStatus(
+                    name="rerank",
+                    provider=providers.rerank.provider,
+                    model=providers.rerank.model,
+                    base_url=providers.rerank.base_url,
+                    endpoint_path=providers.rerank.endpoint_path,
+                    api_key_env=providers.rerank.api_key_env,
+                    api_key_configured=bool(providers.rerank.api_key),
+                    timeout_seconds=providers.rerank.timeout_seconds,
+                ),
+            ]
+        )
 
     def list_documents(
         self,

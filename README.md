@@ -126,6 +126,7 @@ The API exposes the same core flow as the CLI:
 
 ```text
 GET    /health
+GET    /providers
 POST   /collections
 GET    /collections
 POST   /collections/{collection}/ingest
@@ -163,6 +164,7 @@ Most CLI commands support `--json` for scripts and future UI integration:
 
 ```bash
 groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
+groundline providers --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline answer "住宿标准" --collection demo --trace --json
 groundline inspect documents --collection demo --json
