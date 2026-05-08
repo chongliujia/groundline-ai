@@ -97,19 +97,8 @@ class QdrantVectorStore:
         try:
             if not self.client.collection_exists(collection):
                 return 0
-            selector = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="doc_id",
-                        match=models.MatchValue(value=doc_id),
-                    )
-                ]
-            )
-            count = self.client.count(
-                collection_name=collection,
-                count_filter=selector,
-                exact=True,
-            ).count
+            selector = self._doc_filter(doc_id)
+            count = self._count_existing_collection(collection, selector)
             if count == 0:
                 return 0
             self.client.delete(
@@ -122,6 +111,39 @@ class QdrantVectorStore:
             raise BackendUnavailableError(
                 f"Qdrant document vector delete failed: {error}"
             ) from error
+
+    def count_points(self, collection: str, doc_id: str | None = None) -> int:
+        try:
+            if not self.client.collection_exists(collection):
+                return 0
+            selector = self._doc_filter(doc_id) if doc_id else None
+            return self._count_existing_collection(collection, selector)
+        except Exception as error:  # pragma: no cover - depends on external Qdrant
+            raise BackendUnavailableError(f"Qdrant vector count failed: {error}") from error
+
+    def _count_existing_collection(
+        self,
+        collection: str,
+        selector: models.Filter | None,
+    ) -> int:
+        return int(
+            self.client.count(
+                collection_name=collection,
+                count_filter=selector,
+                exact=True,
+            ).count
+        )
+
+    @staticmethod
+    def _doc_filter(doc_id: str) -> models.Filter:
+        return models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="doc_id",
+                    match=models.MatchValue(value=doc_id),
+                )
+            ]
+        )
 
     def _distance(self) -> models.Distance:
         value = self.distance.lower()

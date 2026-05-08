@@ -11,7 +11,11 @@ from rich.table import Table
 
 from groundline.core.config import Settings
 from groundline.core.engine import Groundline
-from groundline.core.schemas import CollectionOperationResponse, ReindexResponse
+from groundline.core.schemas import (
+    CollectionHealthReport,
+    CollectionOperationResponse,
+    ReindexResponse,
+)
 from groundline.evals.runner import run_eval
 
 app = typer.Typer(help="Groundline CLI")
@@ -68,6 +72,32 @@ def providers(
             "set" if provider.api_key_configured else "missing",
         )
     console.print(table)
+
+
+@app.command()
+def health(
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
+    include_documents: Annotated[
+        bool,
+        typer.Option(help="Include per-document index diagnostics."),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    result = engine.collection_health(
+        collection,
+        include_documents=include_documents,
+    )
+    if json_output:
+        _print_json_model(result)
+        return
+    _print_collection_health(result)
 
 
 @app.command()
@@ -482,6 +512,50 @@ def _print_collections(engine: Groundline) -> None:
     for collection in engine.list_collections():
         table.add_row(collection)
     console.print(table)
+
+
+def _print_collection_health(result: CollectionHealthReport) -> None:
+    table = Table(title=f"Collection Health: {result.collection}")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Status", result.status)
+    table.add_row("OK", "yes" if result.ok else "no")
+    table.add_row("Documents", f"{result.active_documents}/{result.documents_total} active")
+    table.add_row("Chunks", f"{result.latest_chunks}/{result.chunks_total} latest")
+    table.add_row(
+        "Vector",
+        (
+            "disabled"
+            if not result.vector_index.enabled
+            else (
+                f"{result.vector_index.actual_points}/"
+                f"{result.vector_index.expected_points} points"
+            )
+        ),
+    )
+    if result.vector_index.error:
+        table.add_row("Vector Error", result.vector_index.error)
+    console.print(table)
+
+    if not result.documents:
+        return
+    documents = Table(title="Document Index")
+    documents.add_column("Document ID")
+    documents.add_column("Title")
+    documents.add_column("Active")
+    documents.add_column("Chunks", justify="right")
+    documents.add_column("Vectors", justify="right")
+    documents.add_column("Needs Reindex")
+    for document in result.documents:
+        documents.add_row(
+            document.doc_id,
+            document.title or "",
+            "yes" if document.is_active else "no",
+            str(document.latest_chunks),
+            "" if document.vector_points is None else str(document.vector_points),
+            "yes" if document.needs_reindex else "no",
+        )
+    console.print(documents)
 
 
 def _print_eval_queries(report: BaseModel) -> None:

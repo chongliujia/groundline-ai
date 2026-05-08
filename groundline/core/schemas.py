@@ -215,6 +215,51 @@ class ProviderStatusResponse(GroundlineModel):
     providers: list[ProviderStatus] = Field(default_factory=list)
 
 
+class DocumentIndexHealth(GroundlineModel):
+    doc_id: str
+    title: str | None = None
+    is_active: bool
+    chunks_total: int = 0
+    active_chunks: int = 0
+    latest_chunks: int = 0
+    vector_points: int | None = None
+    missing_vectors: int | None = None
+    extra_vectors: int | None = None
+    needs_reindex: bool = False
+
+
+class VectorIndexHealth(GroundlineModel):
+    enabled: bool
+    backend: str = "qdrant"
+    expected_points: int = 0
+    actual_points: int | None = None
+    missing_points: int | None = None
+    extra_points: int | None = None
+    needs_reindex: bool = False
+    error: str | None = None
+
+
+class CollectionHealthReport(GroundlineModel):
+    collection: str
+    exists: bool
+    ok: bool
+    status: Literal[
+        "ready",
+        "embedding_disabled",
+        "needs_reindex",
+        "vector_unavailable",
+        "missing",
+    ]
+    documents_total: int = 0
+    active_documents: int = 0
+    chunks_total: int = 0
+    active_chunks: int = 0
+    latest_chunks: int = 0
+    vector_index: VectorIndexHealth
+    documents: list[DocumentIndexHealth] = Field(default_factory=list)
+    reason: str | None = None
+
+
 class IngestRequest(GroundlineModel):
     source_uri: str
     tenant_id: str = "default"

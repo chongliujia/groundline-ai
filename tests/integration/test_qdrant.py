@@ -57,14 +57,21 @@ def test_qdrant_vector_path_with_hash_embedder(tmp_path: Path) -> None:
 
         assert ingest.documents[0].chunk_count >= 1
         assert _count_doc_points(client, collection, doc_id) == ingest.documents[0].chunk_count
+        health = engine.collection_health(collection)
+        assert health.status == "ready"
+        assert health.vector_index.actual_points == ingest.documents[0].chunk_count
         client.delete_collection(collection)
         assert _count_collection_points(client, collection) == 0
+        missing_vectors = engine.collection_health(collection)
+        assert missing_vectors.status == "needs_reindex"
+        assert missing_vectors.vector_index.missing_points == ingest.documents[0].chunk_count
 
         reindexed = engine.reindex_collection(collection)
 
         assert reindexed.ok is True
         assert reindexed.chunks_indexed == ingest.documents[0].chunk_count
         assert _count_doc_points(client, collection, doc_id) == ingest.documents[0].chunk_count
+        assert engine.collection_health(collection).status == "ready"
 
         assert result.trace is not None
         assert result.trace["retrieval"]["vector_hits_raw"] > 0

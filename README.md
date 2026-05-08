@@ -140,6 +140,7 @@ GET    /health
 GET    /providers
 POST   /collections
 GET    /collections
+GET    /collections/{collection}/health
 POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
 POST   /collections/{collection}/answer
@@ -178,6 +179,7 @@ Most CLI commands support `--json` for scripts and future UI integration:
 ```bash
 groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
 groundline providers --json
+groundline health --collection demo --json
 groundline quickstart --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline answer "住宿标准" --collection demo --trace --json
@@ -225,6 +227,15 @@ Repeated ingest skips unchanged files by `source_uri + content_hash`. Changed fi
 reuse the existing `doc_id`, create a new version, and deactivate old chunks.
 When embedding is enabled, Groundline also removes the previous document vectors
 from Qdrant before indexing the new version.
+
+Check collection health before demos or after backend maintenance:
+
+```bash
+groundline health --collection demo
+```
+
+Health diagnostics report metadata counts, expected vector points, actual Qdrant
+points, and whether the collection needs `reindex`.
 
 Delete a document with a tombstone:
 

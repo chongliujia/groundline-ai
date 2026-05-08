@@ -75,6 +75,13 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert reindex.json()["ok"] is False
     assert reindex.json()["reason"] == "embedding disabled"
 
+    collection_health = client.get("/collections/demo/health")
+    assert collection_health.status_code == 200
+    assert collection_health.json()["status"] == "embedding_disabled"
+    assert collection_health.json()["documents_total"] == 1
+    assert collection_health.json()["latest_chunks"] >= 1
+    assert collection_health.json()["documents"][0]["doc_id"] == doc_id
+
     query = client.post(
         "/collections/demo/query",
         json={

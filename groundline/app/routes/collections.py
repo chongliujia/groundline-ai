@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    CollectionHealthReport,
     CollectionOperationResponse,
     DeleteResponse,
     DocumentDetail,
@@ -29,6 +30,21 @@ def create_collection(name: str) -> dict[str, str]:
     engine = Groundline(get_settings())
     engine.metadata.create_collection(name)
     return {"name": name, "status": "created"}
+
+
+@router.get("/{collection_name}/health", response_model=CollectionHealthReport)
+def collection_health(
+    collection_name: str,
+    include_documents: bool = True,
+) -> CollectionHealthReport:
+    engine = Groundline(get_settings())
+    result = engine.collection_health(
+        collection_name,
+        include_documents=include_documents,
+    )
+    if not result.exists:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
 
 
 @router.post("/{collection_name}/clear", response_model=CollectionOperationResponse)

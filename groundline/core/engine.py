@@ -21,10 +21,12 @@ from groundline.core.ids import new_id
 from groundline.core.schemas import (
     AnswerResponse,
     Chunk,
+    CollectionHealthReport,
     CollectionOperationResponse,
     DeleteResponse,
     Document,
     DocumentDetail,
+    DocumentIndexHealth,
     DocumentVersion,
     GroundedContext,
     IngestedDocument,
@@ -35,6 +37,7 @@ from groundline.core.schemas import (
     ReindexResponse,
     RetrievalHit,
     SkippedSource,
+    VectorIndexHealth,
     utc_now,
 )
 from groundline.ingestion.chunker import CHUNKER_VERSION, ChunkerConfig, HeadingAwareChunker
@@ -96,6 +99,111 @@ class Groundline:
                     timeout_seconds=providers.rerank.timeout_seconds,
                 ),
             ]
+        )
+
+    def collection_health(
+        self,
+        collection: str,
+        include_documents: bool = True,
+    ) -> CollectionHealthReport:
+        if not self.metadata.collection_exists(collection):
+            return CollectionHealthReport(
+                collection=collection,
+                exists=False,
+                ok=False,
+                status="missing",
+                vector_index=VectorIndexHealth(enabled=False),
+                reason="collection not found",
+            )
+
+        documents = self.list_documents(collection, include_inactive=True)
+        chunks = self.list_chunks(collection, include_inactive=True)
+        active_chunks = [chunk for chunk in chunks if chunk.is_active]
+        latest_chunks = [chunk for chunk in chunks if chunk.is_active and chunk.is_latest]
+        latest_chunks_by_doc = self._count_chunks_by_doc(latest_chunks)
+        active_chunks_by_doc = self._count_chunks_by_doc(active_chunks)
+        chunks_by_doc = self._count_chunks_by_doc(chunks)
+        embedding_enabled = self.providers.embedding.provider.lower() not in {
+            "none",
+            "disabled",
+        }
+        vector_points_by_doc: dict[str, int] = {}
+        vector_error: str | None = None
+        actual_points: int | None = None
+
+        if embedding_enabled:
+            try:
+                store = QdrantVectorStore(url=self.settings.qdrant_url)
+                actual_points = store.count_points(collection)
+                if include_documents:
+                    vector_points_by_doc = {
+                        document.doc_id: store.count_points(collection, document.doc_id)
+                        for document in documents
+                    }
+            except (BackendUnavailableError, ImportError) as error:
+                vector_error = str(error)
+
+        expected_points = len(latest_chunks) if embedding_enabled else 0
+        if actual_points is None:
+            missing_points = None
+            extra_points = None
+        else:
+            missing_points = max(expected_points - actual_points, 0)
+            extra_points = max(actual_points - expected_points, 0)
+        document_reports = (
+            [
+                self._document_index_health(
+                    document,
+                    chunks_total=chunks_by_doc.get(document.doc_id, 0),
+                    active_chunks=active_chunks_by_doc.get(document.doc_id, 0),
+                    latest_chunks=latest_chunks_by_doc.get(document.doc_id, 0),
+                    vector_points=vector_points_by_doc.get(document.doc_id)
+                    if embedding_enabled and vector_error is None
+                    else None,
+                )
+                for document in documents
+            ]
+            if include_documents
+            else []
+        )
+        needs_reindex = bool(
+            embedding_enabled
+            and vector_error is None
+            and (
+                (missing_points or 0) > 0
+                or (extra_points or 0) > 0
+                or any(report.needs_reindex for report in document_reports)
+            )
+        )
+        vector_index = VectorIndexHealth(
+            enabled=embedding_enabled,
+            expected_points=expected_points,
+            actual_points=actual_points,
+            missing_points=missing_points,
+            extra_points=extra_points,
+            needs_reindex=needs_reindex,
+            error=vector_error,
+        )
+        if vector_error:
+            status = "vector_unavailable"
+        elif not embedding_enabled:
+            status = "embedding_disabled"
+        elif needs_reindex:
+            status = "needs_reindex"
+        else:
+            status = "ready"
+        return CollectionHealthReport(
+            collection=collection,
+            exists=True,
+            ok=status in {"ready", "embedding_disabled"},
+            status=status,
+            documents_total=len(documents),
+            active_documents=len([document for document in documents if document.is_active]),
+            chunks_total=len(chunks),
+            active_chunks=len(active_chunks),
+            latest_chunks=len(latest_chunks),
+            vector_index=vector_index,
+            documents=document_reports,
         )
 
     def list_documents(
@@ -842,6 +950,41 @@ class Groundline:
             return reranker.rerank(query, candidates), None
         except (ProviderConfigurationError, ImportError) as error:
             return [(chunk, None) for chunk in candidates], str(error)
+
+    @staticmethod
+    def _count_chunks_by_doc(chunks: list[Chunk]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for chunk in chunks:
+            counts[chunk.doc_id] = counts.get(chunk.doc_id, 0) + 1
+        return counts
+
+    @staticmethod
+    def _document_index_health(
+        document: Document,
+        chunks_total: int,
+        active_chunks: int,
+        latest_chunks: int,
+        vector_points: int | None,
+    ) -> DocumentIndexHealth:
+        expected_vectors = latest_chunks if document.is_active else 0
+        missing_vectors = (
+            max(expected_vectors - vector_points, 0) if vector_points is not None else None
+        )
+        extra_vectors = (
+            max(vector_points - expected_vectors, 0) if vector_points is not None else None
+        )
+        return DocumentIndexHealth(
+            doc_id=document.doc_id,
+            title=document.title,
+            is_active=document.is_active,
+            chunks_total=chunks_total,
+            active_chunks=active_chunks,
+            latest_chunks=latest_chunks,
+            vector_points=vector_points,
+            missing_vectors=missing_vectors,
+            extra_vectors=extra_vectors,
+            needs_reindex=bool((missing_vectors or 0) > 0 or (extra_vectors or 0) > 0),
+        )
 
     @staticmethod
     def _vector_point_id(chunk_id: str) -> str:

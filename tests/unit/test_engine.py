@@ -374,3 +374,32 @@ def test_engine_reindex_reports_disabled_embedding(tmp_path: Path) -> None:
     assert document_result.reason == "embedding disabled"
     assert missing_document.ok is False
     assert missing_document.reason == "document not found"
+
+
+def test_engine_collection_health_reports_metadata_and_disabled_vectors(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    ingest = engine.ingest_path(source, collection="demo")
+
+    health = engine.collection_health("demo")
+    summary = engine.collection_health("demo", include_documents=False)
+    missing = engine.collection_health("missing")
+
+    assert health.ok is True
+    assert health.status == "embedding_disabled"
+    assert health.documents_total == 1
+    assert health.active_documents == 1
+    assert health.latest_chunks == ingest.documents[0].chunk_count
+    assert health.vector_index.enabled is False
+    assert health.vector_index.expected_points == 0
+    assert health.documents[0].doc_id == ingest.documents[0].doc_id
+    assert health.documents[0].vector_points is None
+    assert health.documents[0].needs_reindex is False
+    assert summary.documents == []
+    assert summary.latest_chunks == health.latest_chunks
+    assert missing.ok is False
+    assert missing.status == "missing"
+    assert missing.reason == "collection not found"
