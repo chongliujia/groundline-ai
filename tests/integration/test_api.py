@@ -94,6 +94,16 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert filtered_out.status_code == 200
     assert filtered_out.json()["contexts"] == []
 
+    answer = client.post(
+        "/collections/demo/answer",
+        json={"query": "住宿标准", "tenant_id": "default", "include_trace": True},
+    )
+    assert answer.status_code == 200
+    assert answer.json()["answer"] is None
+    assert answer.json()["error"] == "llm disabled"
+    assert answer.json()["contexts"][0]["doc_id"] == doc_id
+    assert answer.json()["trace"]["context"]["final_items"] >= 1
+
     evalset = tmp_path / "eval.jsonl"
     evalset.write_text(
         json.dumps(

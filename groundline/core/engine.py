@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from groundline.adapters.embedding.factory import build_embedder
+from groundline.adapters.llm.factory import build_llm
 from groundline.adapters.metadata.sqlite_store import SQLiteMetadataStore
 from groundline.adapters.rerank.factory import build_reranker
 from groundline.adapters.search.bm25_store import InMemoryBM25Store
@@ -18,6 +19,7 @@ from groundline.core.errors import (
 from groundline.core.hashing import hash_file
 from groundline.core.ids import new_id
 from groundline.core.schemas import (
+    AnswerResponse,
     Chunk,
     CollectionOperationResponse,
     DeleteResponse,
@@ -37,6 +39,7 @@ from groundline.ingestion.loader import infer_source_type, iter_local_documents
 from groundline.ingestion.parser import PARSER_VERSION, ParserRegistry
 from groundline.retrieval.context_builder import chunk_to_context, pack_adjacent_chunks
 from groundline.retrieval.fusion import reciprocal_rank_fusion
+from groundline.retrieval.prompt_builder import build_answer_messages
 from groundline.retrieval.trace import empty_trace
 
 
@@ -503,6 +506,58 @@ class Groundline:
             }
 
         return QueryResponse(query=query, contexts=contexts, trace=trace)
+
+    def answer(
+        self,
+        collection: str,
+        query: str,
+        tenant_id: str = "default",
+        user_groups: list[str] | None = None,
+        filters: dict[str, object] | None = None,
+        top_k: int = 8,
+        context_window: int = 0,
+        max_context_chars: int = 12000,
+        include_trace: bool = False,
+        system_prompt: str | None = None,
+    ) -> AnswerResponse:
+        query_response = self.query(
+            collection=collection,
+            query=query,
+            tenant_id=tenant_id,
+            user_groups=user_groups,
+            filters=filters,
+            top_k=top_k,
+            context_window=context_window,
+            max_context_chars=max_context_chars,
+            include_trace=include_trace,
+        )
+        try:
+            llm = build_llm(self.providers.llm)
+            if llm is None:
+                return AnswerResponse(
+                    query=query,
+                    contexts=query_response.contexts,
+                    trace=query_response.trace,
+                    error="llm disabled",
+                )
+            messages = build_answer_messages(
+                query=query,
+                contexts=query_response.contexts,
+                system_prompt=system_prompt,
+            )
+            return AnswerResponse(
+                query=query,
+                answer=llm.generate(messages),
+                contexts=query_response.contexts,
+                trace=query_response.trace,
+            )
+        except (BackendUnavailableError, ProviderConfigurationError, ImportError) as error:
+            return AnswerResponse(
+                query=query,
+                contexts=query_response.contexts,
+                trace=query_response.trace,
+                error=str(error),
+            )
 
     @staticmethod
     def _is_allowed(chunk_groups: list[str], user_groups: list[str]) -> bool:

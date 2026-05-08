@@ -161,6 +161,70 @@ def query(
 
 
 @app.command()
+def answer(
+    text: Annotated[str, typer.Argument(help="Question text.")],
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
+    tenant_id: Annotated[str, typer.Option(help="Tenant id.")] = "default",
+    doc_type: Annotated[str | None, typer.Option(help="Filter by document type.")] = None,
+    domain: Annotated[str | None, typer.Option(help="Filter by domain.")] = None,
+    language: Annotated[str | None, typer.Option(help="Filter by language.")] = None,
+    filters_json: Annotated[
+        str | None,
+        typer.Option("--filters", help="JSON object with additional exact-match filters."),
+    ] = None,
+    top_k: Annotated[int, typer.Option(help="Number of contexts to use.")] = 8,
+    context_window: Annotated[
+        int,
+        typer.Option(help="Number of adjacent chunks to pack on each side."),
+    ] = 0,
+    max_context_chars: Annotated[
+        int,
+        typer.Option(help="Maximum total context characters to return."),
+    ] = 12000,
+    trace: Annotated[bool, typer.Option(help="Include retrieval trace.")] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    filters = _build_query_filters(
+        doc_type=doc_type,
+        domain=domain,
+        language=language,
+        filters_json=filters_json,
+    )
+    result = engine.answer(
+        collection=collection,
+        query=text,
+        tenant_id=tenant_id,
+        filters=filters,
+        top_k=top_k,
+        context_window=context_window,
+        max_context_chars=max_context_chars,
+        include_trace=trace,
+    )
+    if json_output:
+        _print_json_model(result)
+        return
+    if result.answer:
+        console.print(result.answer)
+    else:
+        console.print(f"[yellow]No answer generated[/yellow]: {result.error}")
+    if result.contexts:
+        console.rule("[bold]Contexts[/bold]")
+        for index, context in enumerate(result.contexts, start=1):
+            console.print(f"[{index}] {context.title or context.doc_id} :: {context.section or ''}")
+            console.print(context.citation.model_dump())
+    if result.trace:
+        console.rule("[bold]Trace[/bold]")
+        console.print(result.trace)
+
+
+@app.command()
 def eval(
     dataset: Annotated[Path, typer.Argument(help="JSONL eval dataset path.")],
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",

@@ -159,6 +159,43 @@ def test_engine_packs_adjacent_chunks_with_context_budget(tmp_path: Path) -> Non
     assert len(budgeted.contexts[0].metadata["packed_chunk_ids"]) == 1
 
 
+def test_engine_answer_returns_contexts_when_llm_disabled(tmp_path: Path) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+
+    result = engine.answer("demo", "住宿标准", include_trace=True)
+
+    assert result.answer is None
+    assert result.error == "llm disabled"
+    assert result.contexts
+    assert result.trace is not None
+
+
+def test_engine_answer_uses_llm_provider(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "policy.md"
+    source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")
+    engine = Groundline.from_local(tmp_path / "data")
+    engine.ingest_path(source, collection="demo")
+    captured: dict = {}
+
+    class FakeLLM:
+        def generate(self, messages):
+            captured["messages"] = messages
+            return "住宿标准是一线城市 800 元。[1]"
+
+    monkeypatch.setattr("groundline.core.engine.build_llm", lambda config: FakeLLM())
+
+    result = engine.answer("demo", "住宿标准")
+
+    assert result.answer == "住宿标准是一线城市 800 元。[1]"
+    assert result.error is None
+    assert "住宿标准" in captured["messages"][1]["content"]
+    assert "[1]" in captured["messages"][1]["content"]
+    assert result.contexts[0].citation.doc_id
+
+
 def test_engine_lists_collections_documents_and_chunks(tmp_path: Path) -> None:
     source = tmp_path / "policy.md"
     source.write_text("# Policy\n\n## Hotel\n\n住宿标准是一线城市 800 元。", encoding="utf-8")

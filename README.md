@@ -130,6 +130,7 @@ POST   /collections
 GET    /collections
 POST   /collections/{collection}/ingest
 POST   /collections/{collection}/query
+POST   /collections/{collection}/answer
 POST   /collections/{collection}/clear
 GET    /collections/{collection}/documents
 GET    /collections/{collection}/documents/{doc_id}
@@ -163,6 +164,7 @@ Most CLI commands support `--json` for scripts and future UI integration:
 ```bash
 groundline ingest ./docs --collection demo --domain finance --metadata '{"department":"finance"}' --json
 groundline query "住宿标准" --collection demo --trace --json
+groundline answer "住宿标准" --collection demo --trace --json
 groundline inspect documents --collection demo --json
 groundline inspect document --collection demo --doc-id <doc_id> --json
 groundline inspect versions --collection demo --doc-id <doc_id> --json

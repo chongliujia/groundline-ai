@@ -187,6 +187,18 @@ class QueryResponse(GroundlineModel):
     trace: dict[str, Any] | None = None
 
 
+class AnswerRequest(QueryRequest):
+    system_prompt: str | None = None
+
+
+class AnswerResponse(GroundlineModel):
+    query: str
+    answer: str | None = None
+    contexts: list[GroundedContext] = Field(default_factory=list)
+    trace: dict[str, Any] | None = None
+    error: str | None = None
+
+
 class IngestRequest(GroundlineModel):
     source_uri: str
     tenant_id: str = "default"
