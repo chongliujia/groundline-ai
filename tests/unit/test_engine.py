@@ -19,8 +19,19 @@ def test_engine_ingests_and_queries_markdown(tmp_path: Path) -> None:
 
     assert len(ingest.documents) == 1
     assert ingest.documents[0].chunk_count >= 1
+    assert ingest.pipeline is not None
+    assert ingest.pipeline.operation == "ingest"
+    assert {event.stage for event in ingest.pipeline.events} >= {
+        "parse",
+        "chunk",
+        "metadata_persist",
+        "vector_index",
+    }
     assert result.contexts
     assert result.contexts[0].citation.doc_id == ingest.documents[0].doc_id
+    assert result.pipeline is not None
+    assert result.pipeline.operation == "query"
+    assert result.pipeline.events[-1].stage == "context_pack"
     assert result.trace is not None
     assert result.trace["retrieval"]["bm25_hits"] >= 1
     assert result.trace["retrieval"]["bm25_candidates"][0]["chunk_id"] == result.contexts[
@@ -200,6 +211,10 @@ def test_engine_answer_returns_contexts_when_llm_disabled(tmp_path: Path) -> Non
     assert result.error == "llm disabled"
     assert result.contexts
     assert result.trace is not None
+    assert result.pipeline is not None
+    assert result.pipeline.operation == "answer"
+    assert result.pipeline.status == "failed"
+    assert result.pipeline.events[-1].stage == "llm_generate"
 
 
 def test_engine_answer_uses_llm_provider(tmp_path: Path, monkeypatch) -> None:
@@ -370,6 +385,8 @@ def test_engine_reindex_reports_disabled_embedding(tmp_path: Path) -> None:
     assert collection_result.ok is False
     assert collection_result.chunks_considered >= 1
     assert collection_result.reason == "embedding disabled"
+    assert collection_result.pipeline is not None
+    assert collection_result.pipeline.operation == "reindex"
     assert document_result.ok is False
     assert document_result.reason == "embedding disabled"
     assert missing_document.ok is False
@@ -398,6 +415,8 @@ def test_engine_collection_health_reports_metadata_and_disabled_vectors(
     assert health.documents[0].doc_id == ingest.documents[0].doc_id
     assert health.documents[0].vector_points is None
     assert health.documents[0].needs_reindex is False
+    assert health.pipeline is not None
+    assert health.pipeline.operation == "health"
     assert summary.documents == []
     assert summary.latest_chunks == health.latest_chunks
     assert missing.ok is False

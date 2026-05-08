@@ -170,6 +170,38 @@ class GroundedContext(GroundlineModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PipelineEvent(GroundlineModel):
+    event_id: str
+    stage: str
+    status: Literal["started", "completed", "skipped", "failed"]
+    message: str | None = None
+    doc_id: str | None = None
+    source_uri: str | None = None
+    duration_ms: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PipelineRun(GroundlineModel):
+    run_id: str
+    operation: Literal[
+        "ingest",
+        "query",
+        "answer",
+        "reindex",
+        "health",
+        "clear",
+        "delete",
+    ]
+    collection: str
+    status: Literal["started", "completed", "failed"]
+    events: list[PipelineEvent] = Field(default_factory=list)
+    duration_ms: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: datetime | None = None
+
+
 class QueryRequest(GroundlineModel):
     query: str
     tenant_id: str = "default"
@@ -185,6 +217,7 @@ class QueryResponse(GroundlineModel):
     query: str
     contexts: list[GroundedContext] = Field(default_factory=list)
     trace: dict[str, Any] | None = None
+    pipeline: PipelineRun | None = None
 
 
 class AnswerRequest(QueryRequest):
@@ -197,6 +230,7 @@ class AnswerResponse(GroundlineModel):
     contexts: list[GroundedContext] = Field(default_factory=list)
     trace: dict[str, Any] | None = None
     error: str | None = None
+    pipeline: PipelineRun | None = None
 
 
 class ProviderStatus(GroundlineModel):
@@ -258,6 +292,7 @@ class CollectionHealthReport(GroundlineModel):
     vector_index: VectorIndexHealth
     documents: list[DocumentIndexHealth] = Field(default_factory=list)
     reason: str | None = None
+    pipeline: PipelineRun | None = None
 
 
 class IngestRequest(GroundlineModel):
@@ -289,6 +324,7 @@ class IngestResponse(GroundlineModel):
     collection: str
     documents: list[IngestedDocument] = Field(default_factory=list)
     skipped: list[SkippedSource] = Field(default_factory=list)
+    pipeline: PipelineRun | None = None
 
 
 class CollectionOperationResponse(GroundlineModel):
@@ -301,6 +337,7 @@ class CollectionOperationResponse(GroundlineModel):
     vector_collection_deleted: bool = False
     reason: str | None = None
     vector_error: str | None = None
+    pipeline: PipelineRun | None = None
 
 
 class ReindexResponse(GroundlineModel):
@@ -313,6 +350,7 @@ class ReindexResponse(GroundlineModel):
     vector_points_deleted: int = 0
     reason: str | None = None
     vector_error: str | None = None
+    pipeline: PipelineRun | None = None
 
 
 class DeleteResponse(GroundlineModel):
@@ -323,6 +361,7 @@ class DeleteResponse(GroundlineModel):
     vector_points_deleted: int = 0
     reason: str | None = None
     vector_error: str | None = None
+    pipeline: PipelineRun | None = None
 
 
 class DocumentDetail(GroundlineModel):

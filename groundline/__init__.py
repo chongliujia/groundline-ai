@@ -7,6 +7,8 @@ from groundline.core.schemas import (
     Document,
     DocumentVersion,
     GroundedContext,
+    PipelineEvent,
+    PipelineRun,
     QueryRequest,
     QueryResponse,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "DocumentVersion",
     "Groundline",
     "GroundedContext",
+    "PipelineEvent",
+    "PipelineRun",
     "QueryRequest",
     "QueryResponse",
 ]

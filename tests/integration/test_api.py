@@ -42,6 +42,8 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     ingest_payload = ingest.json()
     assert ingest_payload["collection"] == "demo"
     assert len(ingest_payload["documents"]) == 1
+    assert ingest_payload["pipeline"]["operation"] == "ingest"
+    assert ingest_payload["pipeline"]["events"]
     doc_id = ingest_payload["documents"][0]["doc_id"]
 
     duplicate = client.post(
@@ -74,6 +76,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert reindex.status_code == 200
     assert reindex.json()["ok"] is False
     assert reindex.json()["reason"] == "embedding disabled"
+    assert reindex.json()["pipeline"]["operation"] == "reindex"
 
     collection_health = client.get("/collections/demo/health")
     assert collection_health.status_code == 200
@@ -81,6 +84,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert collection_health.json()["documents_total"] == 1
     assert collection_health.json()["latest_chunks"] >= 1
     assert collection_health.json()["documents"][0]["doc_id"] == doc_id
+    assert collection_health.json()["pipeline"]["operation"] == "health"
 
     query = client.post(
         "/collections/demo/query",
@@ -100,6 +104,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert query.json()["trace"]["context"]["contexts"][0]["doc_id"] == doc_id
     assert query.json()["trace"]["context"]["context_window"] == 1
     assert query.json()["contexts"][0]["metadata"]["packed_chunk_ids"]
+    assert query.json()["pipeline"]["operation"] == "query"
 
     filtered_out = client.post(
         "/collections/demo/query",
@@ -121,6 +126,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert answer.json()["error"] == "llm disabled"
     assert answer.json()["contexts"][0]["doc_id"] == doc_id
     assert answer.json()["trace"]["context"]["final_items"] >= 1
+    assert answer.json()["pipeline"]["operation"] == "answer"
 
     evalset = tmp_path / "eval.jsonl"
     evalset.write_text(
@@ -150,6 +156,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
     assert deleted.json()["vector_points_deleted"] == 0
+    assert deleted.json()["pipeline"]["operation"] == "delete"
 
     query_after_delete = client.post(
         "/collections/demo/query",
@@ -187,6 +194,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert scratch_clear.status_code == 200
     assert scratch_clear.json()["ok"] is True
     assert scratch_clear.json()["documents_removed"] == 1
+    assert scratch_clear.json()["pipeline"]["operation"] == "clear"
     assert client.get("/collections/scratch/documents").json()["documents"] == []
 
     scratch_ingest_again = client.post(
@@ -198,4 +206,5 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert scratch_delete.status_code == 200
     assert scratch_delete.json()["ok"] is True
     assert scratch_delete.json()["operation"] == "delete"
+    assert scratch_delete.json()["pipeline"]["operation"] == "delete"
     assert "scratch" not in client.get("/collections").json()["collections"]

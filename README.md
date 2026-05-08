@@ -193,6 +193,11 @@ groundline delete collection demo --json
 groundline delete document <doc_id> --collection demo --json
 ```
 
+Operational commands return a reusable `pipeline` object in JSON/API responses.
+It contains a `run_id`, operation status, and ordered step events such as parse,
+chunk, vector index, retrieval, rerank, context packing, and reindex. The shape is
+stable enough for demos, diagnostics, logs, and the future Web UI to consume.
+
 Query supports exact-match filters on chunk/document fields and metadata:
 
 ```bash
