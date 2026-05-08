@@ -40,6 +40,15 @@ Run the local BM25-only demo without external API keys:
 groundline quickstart
 ```
 
+Run the fuller developer demo flow when you want reusable diagnostics:
+
+```bash
+groundline demo --json
+```
+
+The demo runs ingest, health, query, answer, eval, reindex, and persisted run
+history against the bundled example documents.
+
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
 
@@ -183,6 +192,7 @@ groundline ingest ./docs --collection demo --domain finance --metadata '{"depart
 groundline providers --json
 groundline health --collection demo --json
 groundline runs --collection demo --json
+groundline demo --json
 groundline quickstart --json
 groundline query "住宿标准" --collection demo --trace --json
 groundline answer "住宿标准" --collection demo --trace --json

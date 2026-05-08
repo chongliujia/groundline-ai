@@ -212,6 +212,44 @@ def quickstart(
 
 
 @app.command()
+def demo(
+    collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
+    docs_path: Annotated[Path, typer.Option(help="Demo docs path.")] = Path(
+        "examples/quickstart/docs"
+    ),
+    evalset: Annotated[Path, typer.Option(help="Demo eval JSONL path.")] = Path(
+        "examples/quickstart/evalset.example.jsonl"
+    ),
+    query_text: Annotated[str, typer.Option(help="Query text to run.")] = "住宿标准",
+    context_window: Annotated[
+        int,
+        typer.Option(help="Number of adjacent chunks to pack on each side."),
+    ] = 1,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        "/tmp/groundline-demo"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    payload = _run_demo_flow(
+        engine=engine,
+        collection=collection,
+        docs_path=docs_path,
+        evalset=evalset,
+        query_text=query_text,
+        context_window=context_window,
+        data_dir=data_dir,
+    )
+    if json_output:
+        _print_json(payload)
+        return
+    _print_demo_summary(payload)
+
+
+@app.command()
 def reindex(
     target: Annotated[str, typer.Argument(help="Currently supported: collection.")] = "collection",
     collection: Annotated[str, typer.Option(help="Collection name.")] = "demo",
@@ -641,6 +679,127 @@ def _print_pipeline_run(run: PipelineRun) -> None:
             event.doc_id or "",
         )
     console.print(events)
+
+
+def _run_demo_flow(
+    engine: Groundline,
+    collection: str,
+    docs_path: Path,
+    evalset: Path,
+    query_text: str,
+    context_window: int,
+    data_dir: Path,
+) -> dict[str, Any]:
+    cleared = engine.clear_collection(collection)
+    providers_result = engine.provider_status()
+    ingest_result = engine.ingest_path(docs_path, collection=collection)
+    health_result = engine.collection_health(collection)
+    query_result = engine.query(
+        collection=collection,
+        query=query_text,
+        context_window=context_window,
+        include_trace=True,
+    )
+    answer_result = engine.answer(
+        collection=collection,
+        query=query_text,
+        context_window=context_window,
+        include_trace=True,
+    )
+    eval_report = run_eval(
+        engine=engine,
+        collection=collection,
+        dataset_path=evalset,
+    )
+    reindex_result = engine.reindex_collection(collection)
+    health_after_reindex = engine.collection_health(collection)
+    runs = engine.list_pipeline_runs(collection=collection, limit=20)
+    payload = {
+        "collection": collection,
+        "data_dir": str(data_dir),
+        "docs_path": str(docs_path),
+        "evalset": str(evalset),
+        "query": query_text,
+        "steps": [
+            _demo_step(
+                "clear",
+                cleared.pipeline,
+                ok=cleared.ok or cleared.reason == "collection not found",
+            ),
+            _demo_step("ingest", ingest_result.pipeline, ok=bool(ingest_result.documents)),
+            _demo_step("health", health_result.pipeline, ok=health_result.ok),
+            _demo_step("query", query_result.pipeline, ok=bool(query_result.contexts)),
+            _demo_step(
+                "answer",
+                answer_result.pipeline,
+                ok=answer_result.error in {None, "llm disabled"},
+            ),
+            _demo_step(
+                "reindex",
+                reindex_result.pipeline,
+                ok=reindex_result.ok or reindex_result.reason == "embedding disabled",
+            ),
+            _demo_step(
+                "health_after_reindex",
+                health_after_reindex.pipeline,
+                ok=health_after_reindex.ok,
+            ),
+        ],
+        "providers": providers_result.model_dump(mode="json"),
+        "cleared": cleared.model_dump(mode="json"),
+        "ingest": ingest_result.model_dump(mode="json"),
+        "health": health_result.model_dump(mode="json"),
+        "query_result": query_result.model_dump(mode="json"),
+        "answer": answer_result.model_dump(mode="json"),
+        "eval": eval_report.model_dump(mode="json"),
+        "reindex": reindex_result.model_dump(mode="json"),
+        "health_after_reindex": health_after_reindex.model_dump(mode="json"),
+        "runs": [run.model_dump(mode="json") for run in runs],
+    }
+    return payload
+
+
+def _demo_step(
+    name: str,
+    run: PipelineRun | None,
+    ok: bool,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "ok": ok,
+        "run_id": run.run_id if run else None,
+        "status": run.status if run else None,
+        "events": len(run.events) if run else 0,
+    }
+
+
+def _print_demo_summary(payload: dict[str, Any]) -> None:
+    console.rule("[bold]Developer Demo[/bold]")
+    console.print(f"Collection: {payload['collection']}")
+    console.print(f"Data dir: {payload['data_dir']}")
+    table = Table(title="Demo Steps")
+    table.add_column("Step")
+    table.add_column("OK")
+    table.add_column("Run ID")
+    table.add_column("Status")
+    table.add_column("Events", justify="right")
+    for step in payload["steps"]:
+        table.add_row(
+            step["name"],
+            "yes" if step["ok"] else "no",
+            step["run_id"] or "",
+            step["status"] or "",
+            str(step["events"]),
+        )
+    console.print(table)
+    console.print(
+        f"Documents: {len(payload['ingest']['documents'])}; "
+        f"contexts: {len(payload['query_result']['contexts'])}; "
+        f"runs persisted: {len(payload['runs'])}"
+    )
+    answer_error = payload["answer"].get("error")
+    if answer_error:
+        console.print(f"[yellow]Answer not generated[/yellow]: {answer_error}")
 
 
 def _print_eval_queries(report: BaseModel) -> None:
