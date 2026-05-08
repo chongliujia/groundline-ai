@@ -218,3 +218,10 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert scratch_delete.json()["operation"] == "delete"
     assert scratch_delete.json()["pipeline"]["operation"] == "delete"
     assert "scratch" not in client.get("/collections").json()["collections"]
+
+    demo = client.post("/demo", json={"collection": "api_demo"})
+    assert demo.status_code == 200
+    assert demo.json()["collection"] == "api_demo"
+    assert all(step["ok"] for step in demo.json()["steps"])
+    assert demo.json()["query_result"]["contexts"]
+    assert demo.json()["runs"]

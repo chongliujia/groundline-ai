@@ -425,3 +425,38 @@ class EvalReport(GroundlineModel):
     metrics: EvalMetrics
     by_query_type: dict[str, EvalMetrics] = Field(default_factory=dict)
     queries: list[EvalQueryResult] = Field(default_factory=list)
+
+
+class DemoRequest(GroundlineModel):
+    collection: str = "demo"
+    docs_path: str = "examples/quickstart/docs"
+    evalset: str = "examples/quickstart/evalset.example.jsonl"
+    query_text: str = "住宿标准"
+    context_window: int = Field(default=1, ge=0, le=5)
+
+
+class DemoStepReport(GroundlineModel):
+    name: str
+    ok: bool
+    run_id: str | None = None
+    status: str | None = None
+    events: int = 0
+
+
+class DemoReport(GroundlineModel):
+    collection: str
+    data_dir: str
+    docs_path: str
+    evalset: str
+    query: str
+    steps: list[DemoStepReport] = Field(default_factory=list)
+    providers: ProviderStatusResponse
+    cleared: CollectionOperationResponse
+    ingest: IngestResponse
+    health: CollectionHealthReport
+    query_result: QueryResponse
+    answer: AnswerResponse
+    eval: EvalReport
+    reindex: ReindexResponse
+    health_after_reindex: CollectionHealthReport
+    runs: list[PipelineRun] = Field(default_factory=list)

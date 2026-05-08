@@ -146,6 +146,7 @@ The API exposes the same core flow as the CLI:
 
 ```text
 GET    /health
+POST   /demo
 GET    /providers
 POST   /collections
 GET    /collections
