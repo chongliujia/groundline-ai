@@ -485,6 +485,17 @@ class AppArtifact(GroundlineModel):
     path: str
 
 
+class AppTemplateFile(GroundlineModel):
+    path: str
+    created: bool
+
+
+class AppInitReport(GroundlineModel):
+    project_dir: str
+    recipe_path: str
+    files: list[AppTemplateFile] = Field(default_factory=list)
+
+
 class AppPlanStep(GroundlineModel):
     name: str
     enabled: bool = True

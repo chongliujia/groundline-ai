@@ -11,11 +11,13 @@ from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppArtifact,
     AppExecutionReport,
+    AppInitReport,
     AppPlanReport,
     AppPlanStep,
     AppRecipe,
     AppRunReport,
     AppStatusReport,
+    AppTemplateFile,
     AppValidationIssue,
     AppValidationReport,
     DemoStepReport,
@@ -40,6 +42,39 @@ def load_app_recipe(path: Path = DEFAULT_RECIPE_PATH) -> AppRecipe:
 def write_app_recipe(path: Path, recipe: AppRecipe) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_recipe_toml(recipe), encoding="utf-8")
+
+
+def init_app_project(project_dir: Path, force: bool = False) -> AppInitReport:
+    recipe = AppRecipe(
+        name=project_dir.name or "groundline-app",
+        collection=_collection_name(project_dir.name),
+        docs_path="docs",
+        evalset="evalset.jsonl",
+        query_text="hotel standard",
+        artifacts_dir=".groundline/artifacts",
+    )
+    files: list[AppTemplateFile] = []
+    project_dir.mkdir(parents=True, exist_ok=True)
+    files.append(_write_template_file(project_dir / "docs" / "policy.md", _sample_doc(), force))
+    files.append(_write_template_file(project_dir / "evalset.jsonl", _sample_evalset(), force))
+    files.append(
+        _write_template_file(
+            project_dir / ".gitignore",
+            ".groundline/\n__pycache__/\n*.pyc\n",
+            force,
+        )
+    )
+    recipe_path = project_dir / DEFAULT_RECIPE_PATH
+    if recipe_path.exists() and not force:
+        files.append(AppTemplateFile(path=str(recipe_path), created=False))
+    else:
+        write_app_recipe(recipe_path, recipe)
+        files.append(AppTemplateFile(path=str(recipe_path), created=True))
+    return AppInitReport(
+        project_dir=str(project_dir),
+        recipe_path=str(recipe_path),
+        files=files,
+    )
 
 
 def plan_app_recipe(
@@ -448,3 +483,46 @@ def _escape_toml(value: str) -> str:
 
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _write_template_file(path: Path, content: str, force: bool) -> AppTemplateFile:
+    if path.exists() and not force:
+        return AppTemplateFile(path=str(path), created=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return AppTemplateFile(path=str(path), created=True)
+
+
+def _collection_name(name: str) -> str:
+    normalized = "".join(
+        char.lower() if char.isascii() and char.isalnum() else "_" for char in name
+    )
+    normalized = "_".join(part for part in normalized.split("_") if part)
+    return normalized or "groundline_app"
+
+
+def _sample_doc() -> str:
+    return "\n".join(
+        [
+            "# Team Policy",
+            "",
+            "## Travel",
+            "",
+            "Employees can claim travel reimbursement after submitting receipts.",
+            "",
+            "## Hotel Standard",
+            "",
+            (
+                "The hotel standard is 800 CNY per night in tier-one cities and "
+                "600 CNY per night in tier-two cities."
+            ),
+            "",
+        ]
+    )
+
+
+def _sample_evalset() -> str:
+    return (
+        '{"query":"hotel standard","gold_source_uris":["docs/policy.md"],'
+        '"query_type":"smoke"}\n'
+    )

@@ -14,6 +14,7 @@ from groundline.core.app_recipe import (
     app_status,
     default_app_recipe,
     export_latest_artifact,
+    init_app_project,
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
@@ -24,6 +25,7 @@ from groundline.core.config import Settings
 from groundline.core.demo import run_demo_flow
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppInitReport,
     AppPlanReport,
     AppRunReport,
     AppStatusReport,
@@ -163,12 +165,35 @@ def app_init(
         Path,
         typer.Option("--recipe", help="App recipe TOML path."),
     ] = DEFAULT_RECIPE_PATH,
+    project_dir: Annotated[
+        Path | None,
+        typer.Option("--project-dir", help="Create a runnable app project template."),
+    ] = None,
     force: Annotated[bool, typer.Option(help="Overwrite an existing recipe.")] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
 ) -> None:
+    if project_dir is not None:
+        report = init_app_project(project_dir, force=force)
+        if json_output:
+            _print_json_model(report)
+            return
+        _print_app_init(report)
+        return
     if recipe_path.exists() and not force:
         console.print(f"[yellow]Recipe already exists[/yellow] {recipe_path}")
         return
     write_app_recipe(recipe_path, default_app_recipe())
+    report = AppInitReport(
+        project_dir=str(recipe_path.parent),
+        recipe_path=str(recipe_path),
+        files=[],
+    )
+    if json_output:
+        _print_json_model(report)
+        return
     console.print(f"Initialized Groundline app recipe at {recipe_path}")
 
 
@@ -859,6 +884,18 @@ def _print_app_run_summary(report: AppRunReport) -> None:
         console.print(f"[yellow]Answer not generated[/yellow]: {run.answer.error}")
     for artifact in report.artifacts:
         console.print(f"{artifact.kind}: {artifact.path}")
+
+
+def _print_app_init(report: AppInitReport) -> None:
+    console.rule("[bold]Groundline App Init[/bold]")
+    console.print(f"Project: {report.project_dir}")
+    console.print(f"Recipe: {report.recipe_path}")
+    table = Table(title="Template Files")
+    table.add_column("Path")
+    table.add_column("Created")
+    for file in report.files:
+        table.add_row(file.path, "yes" if file.created else "no")
+    console.print(table)
 
 
 def _print_app_plan(report: AppPlanReport) -> None:

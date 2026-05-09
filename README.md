@@ -60,6 +60,15 @@ groundline app status
 groundline app export .groundline/artifacts/demo-report.json
 ```
 
+To scaffold a standalone developer demo project:
+
+```bash
+groundline app init --project-dir my-rag-app
+cd my-rag-app
+groundline app validate
+groundline app run
+```
+
 `groundline app run` is the engineering entrypoint: it uses the recipe to run an
 incremental ingest plus optional query, answer, eval, and reindex steps. It does
 not clear the collection unless `reset_collection = true` is set in

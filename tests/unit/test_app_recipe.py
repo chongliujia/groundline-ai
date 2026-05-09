@@ -5,6 +5,7 @@ from groundline.core.app_recipe import (
     app_status,
     default_app_recipe,
     export_latest_artifact,
+    init_app_project,
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
@@ -126,3 +127,36 @@ def test_app_recipe_validation_reports_blocking_errors(tmp_path: Path) -> None:
         "evalset_missing",
         "query_text_empty",
     }
+
+
+def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "Support Bot"
+    report = init_app_project(project_dir)
+
+    assert report.recipe_path.endswith("groundline.app.toml")
+    assert {Path(file.path).name for file in report.files} == {
+        ".gitignore",
+        "evalset.jsonl",
+        "groundline.app.toml",
+        "policy.md",
+    }
+    assert all(file.created for file in report.files)
+
+    monkeypatch.chdir(project_dir)
+    recipe = load_app_recipe()
+    engine = Groundline.from_local(Path(".groundline"))
+    validation = validate_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=Path(".groundline"),
+    )
+    run = run_app_recipe(engine=engine, recipe=recipe, data_dir=Path(".groundline"))
+
+    assert recipe.collection == "support_bot"
+    assert validation.ok is True
+    assert run.run.ingest.documents
+    assert run.run.query_result is not None
+    assert run.run.query_result.contexts
+
+    skipped = init_app_project(project_dir)
+    assert not any(file.created for file in skipped.files)
