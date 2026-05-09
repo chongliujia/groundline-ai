@@ -12,6 +12,10 @@ from groundline.core.engine import Groundline
 from groundline.core.hashing import hash_file, hash_text
 from groundline.core.schemas import (
     AppArtifact,
+    AppCompareChange,
+    AppCompareMetric,
+    AppCompareReport,
+    AppCompareSource,
     AppDocumentRegistryItem,
     AppDocumentRegistryReport,
     AppExecutionReport,
@@ -438,6 +442,75 @@ def export_latest_artifact(recipe: AppRecipe, output_path: Path) -> AppArtifact:
     return AppArtifact(kind="export", path=str(output_path))
 
 
+def compare_app_runs(base_path: Path, target_path: Path) -> AppCompareReport:
+    base = _load_app_artifact_payload(base_path)
+    target = _load_app_artifact_payload(target_path)
+    base_manifest = base.get("run", {}).get("manifest", {})
+    target_manifest = target.get("run", {}).get("manifest", {})
+    changes: list[AppCompareChange] = []
+
+    for field in [
+        "profile",
+        "recipe_hash",
+        "collection",
+        "data_dir",
+        "provider_config_path",
+        "qdrant_url",
+        "docs_path",
+        "evalset",
+        "query_text",
+    ]:
+        _append_change(changes, f"manifest.{field}", base_manifest, target_manifest, field)
+
+    source_changes = _compare_sources(
+        base_manifest.get("sources", []),
+        target_manifest.get("sources", []),
+    )
+    provider_changed = _provider_fingerprint(base_manifest) != _provider_fingerprint(
+        target_manifest
+    )
+    if provider_changed:
+        changes.append(
+            AppCompareChange(
+                field="manifest.providers",
+                before=_provider_fingerprint(base_manifest),
+                after=_provider_fingerprint(target_manifest),
+            )
+        )
+
+    base_steps = _step_fingerprint(base_manifest)
+    target_steps = _step_fingerprint(target_manifest)
+    steps_changed = base_steps != target_steps
+    if steps_changed:
+        changes.append(
+            AppCompareChange(
+                field="manifest.steps",
+                before=base_steps,
+                after=target_steps,
+            )
+        )
+
+    metrics = _compare_eval_metrics(base, target)
+    metrics_changed = any(metric.delta not in {None, 0} for metric in metrics)
+    recipe_changed = any(change.field == "manifest.recipe_hash" for change in changes)
+    sources_changed = any(source.status != "unchanged" for source in source_changes)
+    return AppCompareReport(
+        base_path=str(base_path),
+        target_path=str(target_path),
+        has_differences=bool(
+            changes or sources_changed or metrics_changed
+        ),
+        recipe_changed=recipe_changed,
+        sources_changed=sources_changed,
+        providers_changed=provider_changed,
+        steps_changed=steps_changed,
+        metrics_changed=metrics_changed,
+        changes=changes,
+        sources=source_changes,
+        metrics=metrics,
+    )
+
+
 def write_app_artifacts(
     recipe: AppRecipe,
     report: AppExecutionReport,
@@ -653,6 +726,136 @@ def _recipe_hash(recipe: AppRecipe) -> str:
         separators=(",", ":"),
     )
     return hash_text(payload)
+
+
+def _load_app_artifact_payload(path: Path) -> dict:
+    with path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+    if not isinstance(payload, dict):
+        raise ValueError(f"App artifact must be a JSON object: {path}")
+    return payload
+
+
+def _append_change(
+    changes: list[AppCompareChange],
+    field_name: str,
+    before: dict,
+    after: dict,
+    key: str,
+) -> None:
+    before_value = before.get(key)
+    after_value = after.get(key)
+    if before_value != after_value:
+        changes.append(
+            AppCompareChange(
+                field=field_name,
+                before=before_value,
+                after=after_value,
+            )
+        )
+
+
+def _compare_sources(
+    before_sources: list[dict],
+    after_sources: list[dict],
+) -> list[AppCompareSource]:
+    before = {
+        str(source.get("path")): source
+        for source in before_sources
+        if isinstance(source, dict) and source.get("path")
+    }
+    after = {
+        str(source.get("path")): source
+        for source in after_sources
+        if isinstance(source, dict) and source.get("path")
+    }
+    compared: list[AppCompareSource] = []
+    for path in sorted(before.keys() | after.keys()):
+        before_hash = before.get(path, {}).get("content_hash")
+        after_hash = after.get(path, {}).get("content_hash")
+        if path not in before:
+            status = "added"
+        elif path not in after:
+            status = "removed"
+        elif before_hash != after_hash:
+            status = "changed"
+        else:
+            status = "unchanged"
+        compared.append(
+            AppCompareSource(
+                path=path,
+                status=status,
+                before_hash=before_hash,
+                after_hash=after_hash,
+            )
+        )
+    return compared
+
+
+def _provider_fingerprint(manifest: dict) -> dict[str, dict[str, object]]:
+    providers = manifest.get("providers", {}).get("providers", [])
+    if not isinstance(providers, list):
+        return {}
+    return {
+        str(provider.get("name")): {
+            "provider": provider.get("provider"),
+            "model": provider.get("model"),
+            "base_url": provider.get("base_url"),
+            "endpoint_path": provider.get("endpoint_path"),
+            "dimension": provider.get("dimension"),
+        }
+        for provider in providers
+        if isinstance(provider, dict) and provider.get("name")
+    }
+
+
+def _step_fingerprint(manifest: dict) -> list[dict[str, object]]:
+    steps = manifest.get("steps", [])
+    if not isinstance(steps, list):
+        return []
+    return [
+        {
+            "name": step.get("name"),
+            "ok": step.get("ok"),
+            "status": step.get("status"),
+        }
+        for step in steps
+        if isinstance(step, dict)
+    ]
+
+
+def _compare_eval_metrics(base: dict, target: dict) -> list[AppCompareMetric]:
+    base_metrics = _eval_metrics(base)
+    target_metrics = _eval_metrics(target)
+    metrics: list[AppCompareMetric] = []
+    for name in sorted(base_metrics.keys() | target_metrics.keys()):
+        before = base_metrics.get(name)
+        after = target_metrics.get(name)
+        delta = None if before is None or after is None else after - before
+        metrics.append(
+            AppCompareMetric(
+                name=name,
+                before=before,
+                after=after,
+                delta=delta,
+            )
+        )
+    return metrics
+
+
+def _eval_metrics(payload: dict) -> dict[str, float | int]:
+    eval_report = payload.get("run", {}).get("eval")
+    if not isinstance(eval_report, dict):
+        return {}
+    metrics = eval_report.get("metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    result: dict[str, float | int] = {}
+    for key in ["recall_at_k", "mrr", "queries"]:
+        value = metrics.get(key)
+        if isinstance(value, int | float):
+            result[key] = value
+    return result
 
 
 def _runtime_from_engine(engine: Groundline, data_dir: Path) -> AppRuntimeProfile:

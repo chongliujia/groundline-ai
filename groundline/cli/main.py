@@ -16,6 +16,7 @@ from groundline.core.app_recipe import (
     app_runtime_profile,
     app_status,
     apply_app_profile,
+    compare_app_runs,
     default_app_recipe,
     export_latest_artifact,
     init_app_project,
@@ -30,6 +31,7 @@ from groundline.core.config import Settings
 from groundline.core.demo import run_demo_flow
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppCompareReport,
     AppDocumentRegistryReport,
     AppInitReport,
     AppPlanReport,
@@ -410,6 +412,22 @@ def app_export(
         _print_json_model(artifact)
         return
     console.print(f"Exported latest app artifact to {artifact.path}")
+
+
+@app_commands.command("compare")
+def app_compare(
+    base_path: Annotated[Path, typer.Argument(help="Base app run artifact JSON.")],
+    target_path: Annotated[Path, typer.Argument(help="Target app run artifact JSON.")],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    report = compare_app_runs(base_path=base_path, target_path=target_path)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_compare(report)
 
 
 @app.command()
@@ -1115,6 +1133,68 @@ def _print_app_providers(report: ProviderReadinessReport) -> None:
             checks,
         )
     console.print(table)
+
+
+def _print_app_compare(report: AppCompareReport) -> None:
+    console.rule("[bold]Groundline App Compare[/bold]")
+    console.print(f"Base: {report.base_path}")
+    console.print(f"Target: {report.target_path}")
+    console.print(f"Differences: {'yes' if report.has_differences else 'no'}")
+    table = Table(title="Summary")
+    table.add_column("Area")
+    table.add_column("Changed")
+    for field, changed in [
+        ("Recipe", report.recipe_changed),
+        ("Sources", report.sources_changed),
+        ("Providers", report.providers_changed),
+        ("Steps", report.steps_changed),
+        ("Metrics", report.metrics_changed),
+    ]:
+        table.add_row(field, "yes" if changed else "no")
+    console.print(table)
+
+    if report.changes:
+        changes = Table(title="Manifest Changes")
+        changes.add_column("Field")
+        changes.add_column("Before")
+        changes.add_column("After")
+        for change in report.changes:
+            changes.add_row(
+                change.field,
+                _preview(json.dumps(change.before, ensure_ascii=False), width=48),
+                _preview(json.dumps(change.after, ensure_ascii=False), width=48),
+            )
+        console.print(changes)
+
+    if report.sources:
+        sources = Table(title="Sources")
+        sources.add_column("Status")
+        sources.add_column("Path")
+        sources.add_column("Before Hash")
+        sources.add_column("After Hash")
+        for source in report.sources:
+            sources.add_row(
+                source.status,
+                source.path,
+                (source.before_hash or "")[:12],
+                (source.after_hash or "")[:12],
+            )
+        console.print(sources)
+
+    if report.metrics:
+        metrics = Table(title="Eval Metrics")
+        metrics.add_column("Metric")
+        metrics.add_column("Before")
+        metrics.add_column("After")
+        metrics.add_column("Delta")
+        for metric in report.metrics:
+            metrics.add_row(
+                metric.name,
+                "" if metric.before is None else str(metric.before),
+                "" if metric.after is None else str(metric.after),
+                "" if metric.delta is None else str(metric.delta),
+            )
+        console.print(metrics)
 
 
 def _print_app_status(report: AppStatusReport) -> None:

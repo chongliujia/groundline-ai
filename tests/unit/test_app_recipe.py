@@ -7,6 +7,7 @@ from groundline.core.app_recipe import (
     app_runtime_profile,
     app_status,
     apply_app_profile,
+    compare_app_runs,
     default_app_recipe,
     export_latest_artifact,
     init_app_project,
@@ -220,6 +221,75 @@ def test_app_profile_overrides_recipe_and_runtime(tmp_path: Path) -> None:
     assert runtime.provider_config_path == str(tmp_path / "dev.toml")
     assert runtime.qdrant_url == "http://qdrant.dev:6333"
     assert plan.runtime.profile == "dev"
+
+
+def test_compare_app_runs_reports_manifest_and_source_differences(tmp_path: Path) -> None:
+    project_dir = tmp_path / "compare-app"
+    init_app_project(project_dir)
+    recipe = load_app_recipe(project_dir / "groundline.app.toml").model_copy(
+        update={
+            "collection": "compare_app",
+            "docs_path": str(project_dir / "docs"),
+            "evalset": str(project_dir / "evalset.jsonl"),
+            "artifacts_dir": str(tmp_path / "artifacts"),
+        }
+    )
+    data_dir = project_dir / ".groundline"
+    engine = Groundline.from_local(data_dir)
+    first = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    base_copy = tmp_path / "base-artifact.json"
+    base_copy.write_text(Path(first.artifacts[0].path).read_text(), encoding="utf-8")
+    source = project_dir / "docs" / "policy.md"
+    original = source.read_text()
+    try:
+        source.write_text(original + "\nTemporary compare change.\n")
+        second = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    finally:
+        source.write_text(original)
+
+    report = compare_app_runs(
+        base_path=base_copy,
+        target_path=Path(second.artifacts[0].path),
+    )
+
+    assert report.has_differences is True
+    assert report.sources_changed is True
+    assert report.recipe_changed is False
+    assert report.sources[0].status == "changed"
+
+
+def test_compare_app_runs_reports_metric_differences(tmp_path: Path) -> None:
+    base_path = tmp_path / "base.json"
+    target_path = tmp_path / "target.json"
+    base_payload = {
+        "run": {
+            "manifest": {
+                "recipe_hash": "same",
+                "sources": [],
+                "providers": {"providers": []},
+                "steps": [],
+            },
+            "eval": {"metrics": {"recall_at_k": 0.5, "mrr": 0.5, "queries": 2}},
+        }
+    }
+    target_payload = {
+        "run": {
+            "manifest": {
+                "recipe_hash": "same",
+                "sources": [],
+                "providers": {"providers": []},
+                "steps": [],
+            },
+            "eval": {"metrics": {"recall_at_k": 1.0, "mrr": 0.75, "queries": 2}},
+        }
+    }
+    base_path.write_text(json.dumps(base_payload), encoding="utf-8")
+    target_path.write_text(json.dumps(target_payload), encoding="utf-8")
+
+    report = compare_app_runs(base_path=base_path, target_path=target_path)
+
+    assert report.metrics_changed is True
+    assert {metric.name: metric.delta for metric in report.metrics}["recall_at_k"] == 0.5
 
 
 def test_app_document_registry_tracks_source_state(tmp_path: Path, monkeypatch) -> None:

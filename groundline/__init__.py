@@ -2,6 +2,10 @@
 
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppCompareChange,
+    AppCompareMetric,
+    AppCompareReport,
+    AppCompareSource,
     AppDocumentRegistryItem,
     AppDocumentRegistryReport,
     AppExecutionReport,
@@ -33,6 +37,10 @@ from groundline.core.schemas import (
 )
 
 __all__ = [
+    "AppCompareChange",
+    "AppCompareMetric",
+    "AppCompareReport",
+    "AppCompareSource",
     "AppExecutionReport",
     "AppDocumentRegistryItem",
     "AppDocumentRegistryReport",

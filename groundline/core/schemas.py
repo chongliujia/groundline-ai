@@ -663,6 +663,40 @@ class AppRunReport(GroundlineModel):
     artifacts: list[AppArtifact] = Field(default_factory=list)
 
 
+class AppCompareChange(GroundlineModel):
+    field: str
+    before: Any = None
+    after: Any = None
+
+
+class AppCompareSource(GroundlineModel):
+    path: str
+    status: Literal["added", "removed", "changed", "unchanged"]
+    before_hash: str | None = None
+    after_hash: str | None = None
+
+
+class AppCompareMetric(GroundlineModel):
+    name: str
+    before: float | int | None = None
+    after: float | int | None = None
+    delta: float | int | None = None
+
+
+class AppCompareReport(GroundlineModel):
+    base_path: str
+    target_path: str
+    has_differences: bool
+    recipe_changed: bool
+    sources_changed: bool
+    providers_changed: bool
+    steps_changed: bool
+    metrics_changed: bool
+    changes: list[AppCompareChange] = Field(default_factory=list)
+    sources: list[AppCompareSource] = Field(default_factory=list)
+    metrics: list[AppCompareMetric] = Field(default_factory=list)
+
+
 class AppStatusReport(GroundlineModel):
     recipe: AppRecipe
     latest_artifact: AppArtifact | None = None

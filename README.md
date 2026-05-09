@@ -59,6 +59,7 @@ groundline app docs
 groundline app providers
 groundline app run --json
 groundline app run --profile dev
+groundline app compare .groundline/artifacts/base.json .groundline/artifacts/latest.json
 groundline app status
 groundline app export .groundline/artifacts/demo-report.json
 ```
@@ -86,6 +87,8 @@ Use `groundline app providers` to inspect LLM, embedding, rerank, and Qdrant
 readiness before wiring real API keys into the app.
 Use profiles in `groundline.app.toml`, such as `[profiles.dev]`, to override
 collection, data dir, artifacts, Qdrant URL, or provider config per environment.
+Use `groundline app compare` to diff two run artifacts for recipe, document,
+provider, step, and eval metric changes.
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
