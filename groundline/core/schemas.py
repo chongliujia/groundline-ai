@@ -526,6 +526,30 @@ class AppValidationReport(GroundlineModel):
     plan: AppPlanReport
 
 
+class AppSourceSnapshot(GroundlineModel):
+    path: str
+    source_type: str
+    content_hash: str
+    bytes: int
+
+
+class AppRunManifest(GroundlineModel):
+    manifest_version: str = "app-manifest.v0.1"
+    recipe_hash: str
+    collection: str
+    data_dir: str
+    docs_path: str
+    evalset: str
+    query_text: str
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: float
+    sources: list[AppSourceSnapshot] = Field(default_factory=list)
+    providers: ProviderStatusResponse
+    steps: list[DemoStepReport] = Field(default_factory=list)
+    run_ids: list[str] = Field(default_factory=list)
+
+
 class AppExecutionReport(GroundlineModel):
     collection: str
     data_dir: str
@@ -534,6 +558,7 @@ class AppExecutionReport(GroundlineModel):
     query: str
     steps: list[DemoStepReport] = Field(default_factory=list)
     providers: ProviderStatusResponse
+    manifest: AppRunManifest
     cleared: CollectionOperationResponse | None = None
     ingest: IngestResponse
     health: CollectionHealthReport

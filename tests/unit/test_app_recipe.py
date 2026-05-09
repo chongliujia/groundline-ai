@@ -55,6 +55,10 @@ def test_app_recipe_run_writes_artifacts_and_status(tmp_path: Path) -> None:
         "rerank_disabled",
     }
     assert report.run.ingest.documents
+    assert report.run.manifest.recipe_hash
+    assert report.run.manifest.sources[0].path.endswith("finance_policy.md")
+    assert report.run.manifest.sources[0].content_hash
+    assert report.run.manifest.run_ids
     assert [step.name for step in report.run.steps] == [
         "ingest",
         "health",
@@ -66,6 +70,8 @@ def test_app_recipe_run_writes_artifacts_and_status(tmp_path: Path) -> None:
     artifact_payload = json.loads(Path(report.artifacts[0].path).read_text())
     assert artifact_payload["recipe"]["collection"] == "app_demo"
     assert artifact_payload["run"]["collection"] == "app_demo"
+    assert artifact_payload["run"]["manifest"]["recipe_hash"]
+    assert artifact_payload["run"]["manifest"]["sources"][0]["content_hash"]
     assert status.latest_artifact is not None
     assert status.latest_run is not None
     assert exported.path.endswith("exported.json")
@@ -155,6 +161,8 @@ def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch)
     assert recipe.collection == "support_bot"
     assert validation.ok is True
     assert run.run.ingest.documents
+    assert run.run.manifest.sources[0].path == "docs/policy.md"
+    assert run.run.manifest.recipe_hash
     assert run.run.query_result is not None
     assert run.run.query_result.contexts
 

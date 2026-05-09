@@ -8,6 +8,7 @@ from pathlib import Path
 
 from groundline.core.demo import demo_step
 from groundline.core.engine import Groundline
+from groundline.core.hashing import hash_file, hash_text
 from groundline.core.schemas import (
     AppArtifact,
     AppExecutionReport,
@@ -15,7 +16,9 @@ from groundline.core.schemas import (
     AppPlanReport,
     AppPlanStep,
     AppRecipe,
+    AppRunManifest,
     AppRunReport,
+    AppSourceSnapshot,
     AppStatusReport,
     AppTemplateFile,
     AppValidationIssue,
@@ -23,6 +26,7 @@ from groundline.core.schemas import (
     DemoStepReport,
 )
 from groundline.evals.runner import run_eval
+from groundline.ingestion.loader import infer_source_type, iter_local_documents
 
 DEFAULT_RECIPE_PATH = Path("groundline.app.toml")
 
@@ -113,6 +117,8 @@ def run_app_recipe(
     data_dir: Path,
     write_artifacts: bool = True,
 ) -> AppRunReport:
+    started_at = datetime.now(UTC)
+    sources = _source_snapshots(Path(recipe.docs_path))
     collection = recipe.collection
     steps = []
     cleared = None
@@ -205,6 +211,22 @@ def run_app_recipe(
         )
 
     runs = engine.list_pipeline_runs(collection=collection, limit=20)
+    finished_at = datetime.now(UTC)
+    manifest = AppRunManifest(
+        recipe_hash=_recipe_hash(recipe),
+        collection=collection,
+        data_dir=str(data_dir),
+        docs_path=recipe.docs_path,
+        evalset=recipe.evalset,
+        query_text=recipe.query_text,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_ms=(finished_at - started_at).total_seconds() * 1000,
+        sources=sources,
+        providers=providers_result,
+        steps=steps,
+        run_ids=[step.run_id for step in steps if step.run_id],
+    )
     app_run = AppExecutionReport(
         collection=collection,
         data_dir=str(data_dir),
@@ -213,6 +235,7 @@ def run_app_recipe(
         query=recipe.query_text,
         steps=steps,
         providers=providers_result,
+        manifest=manifest,
         cleared=cleared,
         ingest=ingest_result,
         health=health_result,
@@ -452,6 +475,31 @@ def _validation_issues(
         )
 
     return issues
+
+
+def _recipe_hash(recipe: AppRecipe) -> str:
+    payload = json.dumps(
+        recipe.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hash_text(payload)
+
+
+def _source_snapshots(path: Path) -> list[AppSourceSnapshot]:
+    if not path.exists():
+        return []
+    return [
+        AppSourceSnapshot(
+            path=str(source),
+            source_type=infer_source_type(source),
+            content_hash=hash_file(source),
+            bytes=source.stat().st_size,
+        )
+        for source in iter_local_documents(path)
+        if source.suffix.lower() != ".pdf"
+    ]
 
 
 def _recipe_toml(recipe: AppRecipe) -> str:

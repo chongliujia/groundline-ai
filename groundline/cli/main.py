@@ -859,6 +859,8 @@ def _print_app_run_summary(report: AppRunReport) -> None:
     console.print(f"App: {report.recipe.name}")
     console.print(f"Collection: {run.collection}")
     console.print(f"Data dir: {run.data_dir}")
+    console.print(f"Recipe hash: {run.manifest.recipe_hash}")
+    console.print(f"Input sources: {len(run.manifest.sources)}")
     table = Table(title="App Steps")
     table.add_column("Step")
     table.add_column("OK")

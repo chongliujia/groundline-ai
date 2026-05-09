@@ -75,6 +75,9 @@ not clear the collection unless `reset_collection = true` is set in
 `groundline.app.toml`. `groundline app validate` and `groundline app plan` are
 side-effect-free checks for developer demos and CI.
 
+Each app run writes a manifest into its artifact with the recipe hash, input
+document hashes, provider status, executed steps, and pipeline run ids.
+
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
 
