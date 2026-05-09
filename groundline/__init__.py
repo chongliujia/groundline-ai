@@ -2,6 +2,7 @@
 
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppExecutionReport,
     AppRecipe,
     AppRunReport,
     AppStatusReport,
@@ -19,6 +20,7 @@ from groundline.core.schemas import (
 )
 
 __all__ = [
+    "AppExecutionReport",
     "AppRecipe",
     "AppRunReport",
     "AppStatusReport",

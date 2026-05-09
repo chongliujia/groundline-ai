@@ -6,15 +6,17 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
-from groundline.core.demo import run_demo_flow
+from groundline.core.demo import demo_step
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppArtifact,
+    AppExecutionReport,
     AppRecipe,
     AppRunReport,
     AppStatusReport,
-    DemoReport,
+    DemoStepReport,
 )
+from groundline.evals.runner import run_eval
 
 DEFAULT_RECIPE_PATH = Path("groundline.app.toml")
 
@@ -42,17 +44,118 @@ def run_app_recipe(
     data_dir: Path,
     write_artifacts: bool = True,
 ) -> AppRunReport:
-    demo = run_demo_flow(
-        engine=engine,
-        collection=recipe.collection,
-        docs_path=Path(recipe.docs_path),
-        evalset=Path(recipe.evalset),
-        query_text=recipe.query_text,
-        context_window=recipe.context_window,
-        data_dir=data_dir,
+    collection = recipe.collection
+    steps = []
+    cleared = None
+    if recipe.reset_collection:
+        cleared = engine.clear_collection(collection)
+        steps.append(
+            demo_step(
+                "clear",
+                cleared.pipeline,
+                ok=cleared.ok or cleared.reason == "collection not found",
+            )
+        )
+
+    providers_result = engine.provider_status()
+    ingest_result = engine.ingest_path(Path(recipe.docs_path), collection=collection)
+    steps.append(
+        demo_step(
+            "ingest",
+            ingest_result.pipeline,
+            ok=bool(ingest_result.documents or ingest_result.skipped),
+        )
     )
-    artifacts = write_app_artifacts(recipe=recipe, report=demo) if write_artifacts else []
-    return AppRunReport(recipe=recipe, demo=demo, artifacts=artifacts)
+    health_result = engine.collection_health(collection)
+    steps.append(demo_step("health", health_result.pipeline, ok=health_result.ok))
+
+    query_result = None
+    if recipe.run_query:
+        query_result = engine.query(
+            collection=collection,
+            query=recipe.query_text,
+            top_k=recipe.top_k,
+            context_window=recipe.context_window,
+            max_context_chars=recipe.max_context_chars,
+            include_trace=recipe.include_trace,
+        )
+        steps.append(demo_step("query", query_result.pipeline, ok=bool(query_result.contexts)))
+
+    answer_result = None
+    if recipe.run_answer:
+        answer_result = engine.answer(
+            collection=collection,
+            query=recipe.query_text,
+            top_k=recipe.top_k,
+            context_window=recipe.context_window,
+            max_context_chars=recipe.max_context_chars,
+            include_trace=recipe.include_trace,
+        )
+        steps.append(
+            demo_step(
+                "answer",
+                answer_result.pipeline,
+                ok=answer_result.error in {None, "llm disabled"},
+            )
+        )
+
+    eval_report = None
+    if recipe.run_eval:
+        eval_report = run_eval(
+            engine=engine,
+            collection=collection,
+            dataset_path=Path(recipe.evalset),
+            top_k=recipe.top_k,
+        )
+        steps.append(
+            DemoStepReport(
+                name="eval",
+                ok=True,
+                events=len(eval_report.queries),
+            )
+        )
+
+    reindex_result = None
+    health_after_reindex = None
+    if recipe.run_reindex:
+        reindex_result = engine.reindex_collection(collection)
+        steps.append(
+            demo_step(
+                "reindex",
+                reindex_result.pipeline,
+                ok=reindex_result.ok or reindex_result.reason == "embedding disabled",
+            )
+        )
+        health_after_reindex = engine.collection_health(collection)
+        steps.append(
+            demo_step(
+                "health_after_reindex",
+                health_after_reindex.pipeline,
+                ok=health_after_reindex.ok,
+            )
+        )
+
+    runs = engine.list_pipeline_runs(collection=collection, limit=20)
+    app_run = AppExecutionReport(
+        collection=collection,
+        data_dir=str(data_dir),
+        docs_path=recipe.docs_path,
+        evalset=recipe.evalset,
+        query=recipe.query_text,
+        steps=steps,
+        providers=providers_result,
+        cleared=cleared,
+        ingest=ingest_result,
+        health=health_result,
+        query_result=query_result,
+        answer=answer_result,
+        eval=eval_report,
+        reindex=reindex_result,
+        health_after_reindex=health_after_reindex,
+        runs=runs,
+    )
+    artifacts = write_app_artifacts(recipe=recipe, report=app_run) if write_artifacts else []
+    return AppRunReport(recipe=recipe, run=app_run, artifacts=artifacts)
 
 
 def app_status(engine: Groundline, recipe: AppRecipe) -> AppStatusReport:
@@ -75,13 +178,16 @@ def export_latest_artifact(recipe: AppRecipe, output_path: Path) -> AppArtifact:
     return AppArtifact(kind="export", path=str(output_path))
 
 
-def write_app_artifacts(recipe: AppRecipe, report: DemoReport) -> list[AppArtifact]:
+def write_app_artifacts(
+    recipe: AppRecipe,
+    report: AppExecutionReport,
+) -> list[AppArtifact]:
     artifacts_dir = Path(recipe.artifacts_dir)
     runs_dir = artifacts_dir / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "recipe": recipe.model_dump(mode="json"),
-        "demo": report.model_dump(mode="json"),
+        "run": report.model_dump(mode="json"),
     }
     latest_path = artifacts_dir / "latest.json"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -110,7 +216,15 @@ def _recipe_toml(recipe: AppRecipe) -> str:
             f'docs_path = "{_escape_toml(recipe.docs_path)}"',
             f'evalset = "{_escape_toml(recipe.evalset)}"',
             f'query_text = "{_escape_toml(recipe.query_text)}"',
+            f"top_k = {recipe.top_k}",
             f"context_window = {recipe.context_window}",
+            f"max_context_chars = {recipe.max_context_chars}",
+            f"reset_collection = {_toml_bool(recipe.reset_collection)}",
+            f"run_query = {_toml_bool(recipe.run_query)}",
+            f"run_answer = {_toml_bool(recipe.run_answer)}",
+            f"run_eval = {_toml_bool(recipe.run_eval)}",
+            f"run_reindex = {_toml_bool(recipe.run_reindex)}",
+            f"include_trace = {_toml_bool(recipe.include_trace)}",
             f'artifacts_dir = "{_escape_toml(recipe.artifacts_dir)}"',
             "",
         ]
@@ -119,3 +233,7 @@ def _recipe_toml(recipe: AppRecipe) -> str:
 
 def _escape_toml(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _toml_bool(value: bool) -> str:
+    return "true" if value else "false"

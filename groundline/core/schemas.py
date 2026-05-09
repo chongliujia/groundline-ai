@@ -468,7 +468,15 @@ class AppRecipe(GroundlineModel):
     docs_path: str = "examples/quickstart/docs"
     evalset: str = "examples/quickstart/evalset.example.jsonl"
     query_text: str = "住宿标准"
+    top_k: int = Field(default=8, ge=1, le=100)
     context_window: int = Field(default=1, ge=0, le=5)
+    max_context_chars: int = Field(default=12000, ge=1)
+    reset_collection: bool = False
+    run_query: bool = True
+    run_answer: bool = True
+    run_eval: bool = False
+    run_reindex: bool = False
+    include_trace: bool = True
     artifacts_dir: str = ".groundline/artifacts"
 
 
@@ -477,9 +485,29 @@ class AppArtifact(GroundlineModel):
     path: str
 
 
+class AppExecutionReport(GroundlineModel):
+    collection: str
+    data_dir: str
+    docs_path: str
+    evalset: str
+    query: str
+    steps: list[DemoStepReport] = Field(default_factory=list)
+    providers: ProviderStatusResponse
+    cleared: CollectionOperationResponse | None = None
+    ingest: IngestResponse
+    health: CollectionHealthReport
+    query_result: QueryResponse | None = None
+    answer: AnswerResponse | None = None
+    eval: EvalReport | None = None
+    reindex: ReindexResponse | None = None
+    health_after_reindex: CollectionHealthReport | None = None
+    runs: list[PipelineRun] = Field(default_factory=list)
+
+
 class AppRunReport(GroundlineModel):
     recipe: AppRecipe
-    demo: DemoReport
+    run: AppExecutionReport
+    demo: DemoReport | None = None
     artifacts: list[AppArtifact] = Field(default_factory=list)
 
 

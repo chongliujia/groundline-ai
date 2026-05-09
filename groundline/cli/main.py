@@ -777,10 +777,34 @@ def _print_pipeline_run(run: PipelineRun) -> None:
 
 
 def _print_app_run_summary(report: AppRunReport) -> None:
+    run = report.run
     console.rule("[bold]Groundline App Run[/bold]")
     console.print(f"App: {report.recipe.name}")
-    console.print(f"Collection: {report.recipe.collection}")
-    _print_demo_summary(report.demo)
+    console.print(f"Collection: {run.collection}")
+    console.print(f"Data dir: {run.data_dir}")
+    table = Table(title="App Steps")
+    table.add_column("Step")
+    table.add_column("OK")
+    table.add_column("Run ID")
+    table.add_column("Status")
+    table.add_column("Events", justify="right")
+    for step in run.steps:
+        table.add_row(
+            step.name,
+            "yes" if step.ok else "no",
+            step.run_id or "",
+            step.status or "",
+            str(step.events),
+        )
+    console.print(table)
+    console.print(
+        f"Documents: {len(run.ingest.documents)}; "
+        f"skipped: {len(run.ingest.skipped)}; "
+        f"contexts: {len(run.query_result.contexts) if run.query_result else 0}; "
+        f"runs persisted: {len(run.runs)}"
+    )
+    if run.answer and run.answer.error:
+        console.print(f"[yellow]Answer not generated[/yellow]: {run.answer.error}")
     for artifact in report.artifacts:
         console.print(f"{artifact.kind}: {artifact.path}")
 

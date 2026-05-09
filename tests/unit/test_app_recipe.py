@@ -30,13 +30,50 @@ def test_app_recipe_run_writes_artifacts_and_status(tmp_path: Path) -> None:
     exported = export_latest_artifact(loaded, tmp_path / "exported.json")
 
     assert loaded == recipe
-    assert report.demo.ingest.documents
+    assert report.run.ingest.documents
+    assert [step.name for step in report.run.steps] == [
+        "ingest",
+        "health",
+        "query",
+        "answer",
+    ]
     assert report.artifacts[0].kind == "latest"
     assert Path(report.artifacts[0].path).exists()
     artifact_payload = json.loads(Path(report.artifacts[0].path).read_text())
     assert artifact_payload["recipe"]["collection"] == "app_demo"
-    assert artifact_payload["demo"]["collection"] == "app_demo"
+    assert artifact_payload["run"]["collection"] == "app_demo"
     assert status.latest_artifact is not None
     assert status.latest_run is not None
     assert exported.path.endswith("exported.json")
     assert (tmp_path / "exported.json").exists()
+
+
+def test_app_recipe_optional_maintenance_steps(tmp_path: Path) -> None:
+    recipe = default_app_recipe().model_copy(
+        update={
+            "collection": "app_maintenance",
+            "artifacts_dir": str(tmp_path / "artifacts"),
+            "reset_collection": True,
+            "run_eval": True,
+            "run_reindex": True,
+        }
+    )
+    data_dir = tmp_path / "data"
+    engine = Groundline.from_local(data_dir)
+
+    report = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    step_names = [step.name for step in report.run.steps]
+
+    assert step_names == [
+        "clear",
+        "ingest",
+        "health",
+        "query",
+        "answer",
+        "eval",
+        "reindex",
+        "health_after_reindex",
+    ]
+    assert report.run.cleared is not None
+    assert report.run.eval is not None
+    assert report.run.reindex is not None

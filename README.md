@@ -58,6 +58,11 @@ groundline app status
 groundline app export .groundline/artifacts/demo-report.json
 ```
 
+`groundline app run` is the engineering entrypoint: it uses the recipe to run an
+incremental ingest plus optional query, answer, eval, and reindex steps. It does
+not clear the collection unless `reset_collection = true` is set in
+`groundline.app.toml`.
+
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
 
