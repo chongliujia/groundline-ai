@@ -23,6 +23,7 @@ from groundline.core.app_recipe import (
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
+    scaffold_app_project,
     settings_for_app_runtime,
     validate_app_recipe,
     write_app_recipe,
@@ -204,6 +205,29 @@ def app_init(
         _print_json_model(report)
         return
     console.print(f"Initialized Groundline app recipe at {recipe_path}")
+
+
+@app_commands.command("scaffold")
+def app_scaffold(
+    project_dir: Annotated[Path, typer.Argument(help="Project directory to create.")],
+    template: Annotated[
+        str,
+        typer.Option(help="App template name."),
+    ] = "developer-support",
+    force: Annotated[bool, typer.Option(help="Overwrite existing template files.")] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    try:
+        report = scaffold_app_project(project_dir, template=template, force=force)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_init(report)
 
 
 @app_commands.command("run")

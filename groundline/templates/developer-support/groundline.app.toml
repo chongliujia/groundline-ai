@@ -1,0 +1,31 @@
+name = "developer-support"
+collection = "developer_support"
+docs_path = "docs"
+evalset = "evalset.jsonl"
+query_text = "How should a developer rotate a leaked API key?"
+top_k = 6
+context_window = 1
+max_context_chars = 8000
+reset_collection = false
+run_query = true
+run_answer = true
+run_eval = true
+run_reindex = false
+include_trace = true
+artifacts_dir = ".groundline/artifacts"
+
+[profiles."ci"]
+collection = "developer_support_ci"
+data_dir = ".groundline/ci"
+artifacts_dir = ".groundline/ci/artifacts"
+run_answer = false
+include_trace = true
+
+[profiles."vector-smoke"]
+collection = "developer_support_vector"
+data_dir = ".groundline/vector"
+artifacts_dir = ".groundline/vector/artifacts"
+provider_config_path = "groundline.toml"
+qdrant_url = "http://localhost:6333"
+run_reindex = true
+

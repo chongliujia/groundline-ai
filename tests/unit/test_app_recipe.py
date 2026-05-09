@@ -14,6 +14,7 @@ from groundline.core.app_recipe import (
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
+    scaffold_app_project,
     settings_for_app_runtime,
     validate_app_recipe,
     write_app_recipe,
@@ -176,6 +177,46 @@ def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch)
     assert run.run.query_result.contexts
 
     skipped = init_app_project(project_dir)
+    assert not any(file.created for file in skipped.files)
+
+
+def test_scaffold_app_project_creates_customized_template(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "Developer Helpdesk"
+    report = scaffold_app_project(project_dir)
+
+    assert report.recipe_path.endswith("groundline.app.toml")
+    assert {Path(file.path).relative_to(project_dir).as_posix() for file in report.files} == {
+        "README.md",
+        "docs/api-auth.md",
+        "docs/release-notes.md",
+        "docs/webhooks.md",
+        "evalset.jsonl",
+        "groundline.app.toml",
+    }
+    assert all(file.created for file in report.files)
+
+    monkeypatch.chdir(project_dir)
+    recipe = load_app_recipe()
+    engine = Groundline.from_local(Path(".groundline"))
+    validation = validate_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=Path(".groundline"),
+    )
+    run = run_app_recipe(engine=engine, recipe=recipe, data_dir=Path(".groundline"))
+
+    assert recipe.name == "Developer Helpdesk"
+    assert recipe.collection == "developer_helpdesk"
+    assert recipe.profiles["ci"].collection == "developer_helpdesk_ci"
+    assert recipe.profiles["vector-smoke"].collection == "developer_helpdesk_vector_smoke"
+    assert validation.ok is True
+    assert run.run.eval is not None
+    assert run.run.eval.metrics.recall_at_k >= 0.5
+
+    skipped = scaffold_app_project(project_dir)
     assert not any(file.created for file in skipped.files)
 
 

@@ -159,6 +159,32 @@ def init_app_project(project_dir: Path, force: bool = False) -> AppInitReport:
     )
 
 
+def scaffold_app_project(
+    project_dir: Path,
+    template: str = "developer-support",
+    force: bool = False,
+) -> AppInitReport:
+    template_dir = _app_template_dir(template)
+    files: list[AppTemplateFile] = []
+    project_dir.mkdir(parents=True, exist_ok=True)
+    for source in sorted(path for path in template_dir.rglob("*") if path.is_file()):
+        relative_path = source.relative_to(template_dir)
+        destination = project_dir / relative_path
+        content = source.read_text(encoding="utf-8")
+        if relative_path == DEFAULT_RECIPE_PATH:
+            recipe = _scaffold_recipe(
+                load_app_recipe(source),
+                project_name=project_dir.name or "groundline-app",
+            )
+            content = _recipe_toml(recipe)
+        files.append(_write_template_file(destination, content, force))
+    return AppInitReport(
+        project_dir=str(project_dir),
+        recipe_path=str(project_dir / DEFAULT_RECIPE_PATH),
+        files=files,
+    )
+
+
 def plan_app_recipe(
     engine: Groundline,
     recipe: AppRecipe,
@@ -875,6 +901,28 @@ def _profile_recipe_overrides(profile: AppProfile) -> dict[str, object]:
         for key, value in profile.model_dump(exclude_none=True).items()
         if key not in runtime_fields
     }
+
+
+def _app_template_dir(template: str) -> Path:
+    template_dir = Path(__file__).parents[1] / "templates" / template
+    if not template_dir.exists() or not template_dir.is_dir():
+        raise ValueError(f"Unknown app template: {template}")
+    return template_dir
+
+
+def _scaffold_recipe(recipe: AppRecipe, project_name: str) -> AppRecipe:
+    collection = _collection_name(project_name)
+    profiles = {}
+    for name, profile in recipe.profiles.items():
+        suffix = _collection_name(name)
+        profiles[name] = profile.model_copy(update={"collection": f"{collection}_{suffix}"})
+    return recipe.model_copy(
+        update={
+            "name": project_name,
+            "collection": collection,
+            "profiles": profiles,
+        }
+    )
 
 
 def _source_snapshots(path: Path) -> list[AppSourceSnapshot]:

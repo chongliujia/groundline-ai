@@ -53,6 +53,7 @@ For a reusable app-style workflow, initialize and run an app recipe:
 
 ```bash
 groundline app init
+groundline app scaffold my-rag-app --template developer-support
 groundline app validate
 groundline app plan
 groundline app docs
@@ -67,7 +68,7 @@ groundline app export .groundline/artifacts/demo-report.json
 To scaffold a standalone developer demo project:
 
 ```bash
-groundline app init --project-dir my-rag-app
+groundline app scaffold my-rag-app --template developer-support
 cd my-rag-app
 groundline app validate
 groundline app run
