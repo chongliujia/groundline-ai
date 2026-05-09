@@ -126,6 +126,19 @@ groundline app compare .groundline/artifacts/base.json .groundline/artifacts/lat
 groundline app compare .groundline/artifacts/base.json .groundline/artifacts/latest.json --json
 ```
 
+The API exposes the same contract:
+
+```http
+POST /app/compare
+```
+
+```json
+{
+  "base_path": ".groundline/artifacts/base.json",
+  "target_path": ".groundline/artifacts/latest.json"
+}
+```
+
 The compare report separates:
 
 - recipe changes
@@ -146,4 +159,3 @@ For `app-manifest.v0.1`:
 - Automation should ignore unknown fields.
 - Breaking changes require a new `manifest_version`.
 - Paths are stored exactly as the app recipe/runtime resolved them.
-

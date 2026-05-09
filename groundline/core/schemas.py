@@ -697,6 +697,11 @@ class AppCompareReport(GroundlineModel):
     metrics: list[AppCompareMetric] = Field(default_factory=list)
 
 
+class AppCompareRequest(GroundlineModel):
+    base_path: str
+    target_path: str
+
+
 class AppStatusReport(GroundlineModel):
     recipe: AppRecipe
     latest_artifact: AppArtifact | None = None

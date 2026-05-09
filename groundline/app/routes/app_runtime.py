@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 
 from groundline.core.app_recipe import (
@@ -8,6 +10,7 @@ from groundline.core.app_recipe import (
     app_runtime_profile,
     app_status,
     apply_app_profile,
+    compare_app_runs,
     latest_app_artifact,
     load_app_recipe,
     plan_app_recipe,
@@ -19,6 +22,8 @@ from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppArtifact,
+    AppCompareReport,
+    AppCompareRequest,
     AppDocumentRegistryReport,
     AppPlanReport,
     AppRecipe,
@@ -96,6 +101,19 @@ def get_latest_app_artifact(profile: str = "default") -> AppArtifact:
     if artifact is None:
         raise HTTPException(status_code=404, detail="No app artifact found")
     return artifact
+
+
+@router.post("/compare", response_model=AppCompareReport)
+def compare_app_artifacts(request: AppCompareRequest) -> AppCompareReport:
+    try:
+        return compare_app_runs(
+            base_path=Path(request.base_path),
+            target_path=Path(request.target_path),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _app_context(

@@ -205,6 +205,7 @@ GET    /app/providers
 POST   /app/run
 GET    /app/status
 GET    /app/artifacts/latest
+POST   /app/compare
 GET    /providers
 POST   /collections
 GET    /collections

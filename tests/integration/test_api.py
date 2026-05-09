@@ -250,6 +250,22 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert app_run.json()["run"]["query_result"]["contexts"]
     assert app_run.json()["run"]["manifest"]["recipe_hash"]
     assert app_run.json()["run"]["manifest"]["sources"]
+    base_artifact = Path(app_run.json()["artifacts"][0]["path"])
+    target_artifact = tmp_path / "api-target-artifact.json"
+    target_payload = json.loads(base_artifact.read_text())
+    target_payload["run"]["manifest"]["query_text"] = "changed through api compare"
+    target_artifact.write_text(json.dumps(target_payload), encoding="utf-8")
+
+    app_compare = client.post(
+        "/app/compare",
+        json={
+            "base_path": str(base_artifact),
+            "target_path": str(target_artifact),
+        },
+    )
+    assert app_compare.status_code == 200
+    assert app_compare.json()["has_differences"] is True
+    assert app_compare.json()["changes"][0]["field"] == "manifest.query_text"
 
     app_docs = client.post("/app/docs", json=app_recipe)
     assert app_docs.status_code == 200
