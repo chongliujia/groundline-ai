@@ -49,6 +49,15 @@ groundline demo --json
 The demo runs ingest, health, query, answer, eval, reindex, and persisted run
 history against the bundled example documents.
 
+For a reusable app-style workflow, initialize and run an app recipe:
+
+```bash
+groundline app init
+groundline app run --json
+groundline app status
+groundline app export .groundline/artifacts/demo-report.json
+```
+
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
 
@@ -147,6 +156,9 @@ The API exposes the same core flow as the CLI:
 ```text
 GET    /health
 POST   /demo
+POST   /app/run
+GET    /app/status
+GET    /app/artifacts/latest
 GET    /providers
 POST   /collections
 GET    /collections

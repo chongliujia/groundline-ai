@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from groundline.app.routes import collections, demo, eval, providers, query
+from groundline.app.routes import app_runtime, collections, demo, eval, providers, query
 
 
 def create_app() -> FastAPI:
@@ -12,6 +12,7 @@ def create_app() -> FastAPI:
         version="0.1.0a0",
     )
     app.include_router(collections.router)
+    app.include_router(app_runtime.router)
     app.include_router(query.router)
     app.include_router(eval.router)
     app.include_router(demo.router)

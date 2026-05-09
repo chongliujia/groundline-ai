@@ -460,3 +460,31 @@ class DemoReport(GroundlineModel):
     reindex: ReindexResponse
     health_after_reindex: CollectionHealthReport
     runs: list[PipelineRun] = Field(default_factory=list)
+
+
+class AppRecipe(GroundlineModel):
+    name: str = "groundline-demo"
+    collection: str = "demo"
+    docs_path: str = "examples/quickstart/docs"
+    evalset: str = "examples/quickstart/evalset.example.jsonl"
+    query_text: str = "住宿标准"
+    context_window: int = Field(default=1, ge=0, le=5)
+    artifacts_dir: str = ".groundline/artifacts"
+
+
+class AppArtifact(GroundlineModel):
+    kind: str
+    path: str
+
+
+class AppRunReport(GroundlineModel):
+    recipe: AppRecipe
+    demo: DemoReport
+    artifacts: list[AppArtifact] = Field(default_factory=list)
+
+
+class AppStatusReport(GroundlineModel):
+    recipe: AppRecipe
+    latest_artifact: AppArtifact | None = None
+    latest_run: PipelineRun | None = None
+    runs: list[PipelineRun] = Field(default_factory=list)

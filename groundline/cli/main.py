@@ -9,10 +9,21 @@ from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
 
+from groundline.core.app_recipe import (
+    DEFAULT_RECIPE_PATH,
+    app_status,
+    default_app_recipe,
+    export_latest_artifact,
+    load_app_recipe,
+    run_app_recipe,
+    write_app_recipe,
+)
 from groundline.core.config import Settings
 from groundline.core.demo import run_demo_flow
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppRunReport,
+    AppStatusReport,
     CollectionHealthReport,
     CollectionOperationResponse,
     DemoReport,
@@ -22,6 +33,8 @@ from groundline.core.schemas import (
 from groundline.evals.runner import run_eval
 
 app = typer.Typer(help="Groundline CLI")
+app_commands = typer.Typer(help="Run Groundline as a reusable RAG application.")
+app.add_typer(app_commands, name="app")
 console = Console()
 
 
@@ -138,6 +151,86 @@ def runs(
         _print_json({"runs": [run.model_dump(mode="json") for run in runs]})
         return
     _print_pipeline_runs(runs)
+
+
+@app_commands.command("init")
+def app_init(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    force: Annotated[bool, typer.Option(help="Overwrite an existing recipe.")] = False,
+) -> None:
+    if recipe_path.exists() and not force:
+        console.print(f"[yellow]Recipe already exists[/yellow] {recipe_path}")
+        return
+    write_app_recipe(recipe_path, default_app_recipe())
+    console.print(f"Initialized Groundline app recipe at {recipe_path}")
+
+
+@app_commands.command("run")
+def app_run(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    recipe = load_app_recipe(recipe_path)
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_run_summary(report)
+
+
+@app_commands.command("status")
+def app_status_cmd(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    recipe = load_app_recipe(recipe_path)
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = app_status(engine, recipe)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_status(report)
+
+
+@app_commands.command("export")
+def app_export(
+    output_path: Annotated[Path, typer.Argument(help="Output JSON artifact path.")],
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    artifact = export_latest_artifact(load_app_recipe(recipe_path), output_path)
+    if json_output:
+        _print_json_model(artifact)
+        return
+    console.print(f"Exported latest app artifact to {artifact.path}")
 
 
 @app.command()
@@ -681,6 +774,32 @@ def _print_pipeline_run(run: PipelineRun) -> None:
             event.doc_id or "",
         )
     console.print(events)
+
+
+def _print_app_run_summary(report: AppRunReport) -> None:
+    console.rule("[bold]Groundline App Run[/bold]")
+    console.print(f"App: {report.recipe.name}")
+    console.print(f"Collection: {report.recipe.collection}")
+    _print_demo_summary(report.demo)
+    for artifact in report.artifacts:
+        console.print(f"{artifact.kind}: {artifact.path}")
+
+
+def _print_app_status(report: AppStatusReport) -> None:
+    table = Table(title=f"App Status: {report.recipe.name}")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Collection", report.recipe.collection)
+    table.add_row("Docs", report.recipe.docs_path)
+    table.add_row("Evalset", report.recipe.evalset)
+    table.add_row(
+        "Latest Artifact",
+        report.latest_artifact.path if report.latest_artifact else "",
+    )
+    table.add_row("Recent Runs", str(len(report.runs)))
+    if report.latest_run:
+        table.add_row("Latest Run", f"{report.latest_run.operation} {report.latest_run.status}")
+    console.print(table)
 
 
 def _print_demo_summary(report: DemoReport) -> None:
