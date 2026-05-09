@@ -28,6 +28,10 @@ from groundline.core.schemas import (
     DemoStepReport,
     Document,
     DocumentVersion,
+    ProviderReadiness,
+    ProviderReadinessCheck,
+    ProviderReadinessReport,
+    ProviderStatus,
 )
 from groundline.evals.runner import run_eval
 from groundline.ingestion.loader import infer_source_type, iter_local_documents
@@ -112,6 +116,18 @@ def validate_app_recipe(
         ok=not any(issue.severity == "error" for issue in issues),
         issues=issues,
         plan=plan,
+    )
+
+
+def app_provider_readiness(engine: Groundline) -> ProviderReadinessReport:
+    providers = engine.provider_status().providers
+    readiness = [_provider_readiness(provider) for provider in providers]
+    readiness.append(_vector_readiness(engine))
+    return ProviderReadinessReport(
+        ok=not any(item.status == "error" for item in readiness),
+        provider_config_path=str(engine.settings.provider_config_path),
+        qdrant_url=engine.settings.qdrant_url,
+        providers=readiness,
     )
 
 
@@ -582,6 +598,211 @@ def _registry_reason(status: str) -> str:
     if status == "missing":
         return "indexed document source is no longer present under docs_path"
     return "source hash matches indexed version"
+
+
+def _provider_readiness(provider: ProviderStatus) -> ProviderReadiness:
+    checks: list[ProviderReadinessCheck] = []
+    provider_name = provider.provider.lower()
+    if provider_name in {"none", "disabled"}:
+        checks.append(
+            ProviderReadinessCheck(
+                code="provider_disabled",
+                severity="info",
+                message=f"{provider.name} provider is disabled.",
+            )
+        )
+        return _provider_readiness_result(provider, checks, status="disabled")
+
+    supported = _supported_providers(provider.name)
+    if provider_name not in supported:
+        checks.append(
+            ProviderReadinessCheck(
+                code="unsupported_provider",
+                severity="error",
+                message=f"Unsupported {provider.name} provider: {provider.provider}.",
+            )
+        )
+
+    if _requires_model(provider.name, provider_name) and not provider.model:
+        checks.append(
+            ProviderReadinessCheck(
+                code="model_missing",
+                severity="error",
+                message=f"{provider.name} provider requires model.",
+            )
+        )
+
+    if _requires_http(provider_name):
+        if not provider.base_url:
+            checks.append(
+                ProviderReadinessCheck(
+                    code="base_url_missing",
+                    severity="error",
+                    message=f"{provider.name} HTTP provider requires base_url.",
+                )
+            )
+        if provider.api_key_env and not provider.api_key_configured:
+            checks.append(
+                ProviderReadinessCheck(
+                    code="api_key_missing",
+                    severity="error",
+                    message=(
+                        f"{provider.name} provider requires env var "
+                        f"{provider.api_key_env}."
+                    ),
+                )
+            )
+        if not provider.endpoint_path:
+            checks.append(
+                ProviderReadinessCheck(
+                    code="default_endpoint_path",
+                    severity="info",
+                    message=f"{provider.name} provider will use the default endpoint path.",
+                )
+            )
+
+    if provider.name == "embedding" and provider.dimension is None:
+        checks.append(
+            ProviderReadinessCheck(
+                code="dimension_missing",
+                severity="warning",
+                message=(
+                    "embedding dimension is not configured; Qdrant collection size "
+                    "will be inferred from the first embedding response."
+                ),
+            )
+        )
+
+    if not checks:
+        checks.append(
+            ProviderReadinessCheck(
+                code="configured",
+                severity="info",
+                message=f"{provider.name} provider configuration is ready.",
+            )
+        )
+
+    return _provider_readiness_result(provider, checks)
+
+
+def _vector_readiness(engine: Groundline) -> ProviderReadiness:
+    embedding = engine.provider_status().providers[1]
+    checks: list[ProviderReadinessCheck] = []
+    if embedding.provider.lower() in {"none", "disabled"}:
+        checks.append(
+            ProviderReadinessCheck(
+                code="embedding_disabled",
+                severity="info",
+                message="Qdrant is not required while embedding is disabled.",
+            )
+        )
+        return ProviderReadiness(
+            name="vector",
+            provider="qdrant",
+            status="disabled",
+            base_url=engine.settings.qdrant_url,
+            checks=checks,
+        )
+    if not engine.settings.qdrant_url:
+        checks.append(
+            ProviderReadinessCheck(
+                code="qdrant_url_missing",
+                severity="error",
+                message="Qdrant URL is required when embedding is enabled.",
+            )
+        )
+    if embedding.dimension is None:
+        checks.append(
+            ProviderReadinessCheck(
+                code="vector_size_not_declared",
+                severity="warning",
+                message="Embedding dimension is not declared for Qdrant vector sizing.",
+            )
+        )
+    else:
+        checks.append(
+            ProviderReadinessCheck(
+                code="expected_vector_size",
+                severity="info",
+                message=f"Expected Qdrant vector size is {embedding.dimension}.",
+            )
+        )
+    return ProviderReadiness(
+        name="vector",
+        provider="qdrant",
+        status=_readiness_status(checks),
+        dimension=embedding.dimension,
+        base_url=engine.settings.qdrant_url,
+        checks=checks,
+    )
+
+
+def _provider_readiness_result(
+    provider: ProviderStatus,
+    checks: list[ProviderReadinessCheck],
+    status: str | None = None,
+) -> ProviderReadiness:
+    return ProviderReadiness(
+        name=provider.name,
+        provider=provider.provider,
+        status=status or _readiness_status(checks),
+        model=provider.model,
+        dimension=provider.dimension,
+        base_url=provider.base_url,
+        endpoint_path=provider.endpoint_path,
+        api_key_env=provider.api_key_env,
+        api_key_configured=provider.api_key_configured,
+        checks=checks,
+    )
+
+
+def _readiness_status(checks: list[ProviderReadinessCheck]):
+    severities = {check.severity for check in checks}
+    if "error" in severities:
+        return "error"
+    if "warning" in severities:
+        return "warning"
+    return "ready"
+
+
+def _supported_providers(name: str) -> set[str]:
+    if name == "embedding":
+        return {
+            "hash",
+            "hashing",
+            "deterministic",
+            "http",
+            "api",
+            "openai_compatible",
+            "openai-compatible",
+            "sentence_transformers",
+            "sentence-transformers",
+        }
+    if name == "rerank":
+        return {
+            "http",
+            "api",
+            "openai_compatible",
+            "openai-compatible",
+            "keyword",
+            "overlap",
+            "cross_encoder",
+            "cross-encoder",
+            "sentence_transformers",
+        }
+    return {"http", "api", "openai_compatible", "openai-compatible"}
+
+
+def _requires_http(provider: str) -> bool:
+    return provider in {"http", "api", "openai_compatible", "openai-compatible"}
+
+
+def _requires_model(name: str, provider: str) -> bool:
+    if provider in {"hash", "hashing", "deterministic", "keyword", "overlap"}:
+        return False
+    if name == "embedding" and provider in {"sentence_transformers", "sentence-transformers"}:
+        return True
+    return _requires_http(provider) or provider in {"cross_encoder", "cross-encoder"}
 
 
 def _current_version(

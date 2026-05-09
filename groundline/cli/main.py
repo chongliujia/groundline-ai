@@ -12,6 +12,7 @@ from rich.table import Table
 from groundline.core.app_recipe import (
     DEFAULT_RECIPE_PATH,
     app_document_registry,
+    app_provider_readiness,
     app_status,
     default_app_recipe,
     export_latest_artifact,
@@ -36,6 +37,7 @@ from groundline.core.schemas import (
     CollectionOperationResponse,
     DemoReport,
     PipelineRun,
+    ProviderReadinessReport,
     ReindexResponse,
 )
 from groundline.evals.runner import run_eval
@@ -291,6 +293,24 @@ def app_docs(
         _print_json_model(report)
         return
     _print_app_docs(report)
+
+
+@app_commands.command("providers")
+def app_providers(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = app_provider_readiness(engine)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_providers(report)
 
 
 @app_commands.command("status")
@@ -993,6 +1013,31 @@ def _print_app_docs(report: AppDocumentRegistryReport) -> None:
             item.version_id or "",
             (item.content_hash or item.indexed_hash or "")[:12],
             item.reason or "",
+        )
+    console.print(table)
+
+
+def _print_app_providers(report: ProviderReadinessReport) -> None:
+    console.rule("[bold]Groundline App Providers[/bold]")
+    console.print(f"OK: {'yes' if report.ok else 'no'}")
+    console.print(f"Config: {report.provider_config_path}")
+    console.print(f"Qdrant: {report.qdrant_url}")
+    table = Table(title="Provider Readiness")
+    table.add_column("Name")
+    table.add_column("Provider")
+    table.add_column("Status")
+    table.add_column("Model")
+    table.add_column("Dimension")
+    table.add_column("Checks")
+    for provider in report.providers:
+        checks = "; ".join(f"{check.severity}:{check.code}" for check in provider.checks)
+        table.add_row(
+            provider.name,
+            provider.provider,
+            provider.status,
+            provider.model,
+            str(provider.dimension or ""),
+            checks,
         )
     console.print(table)
 

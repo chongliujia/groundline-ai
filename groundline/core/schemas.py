@@ -249,6 +249,32 @@ class ProviderStatusResponse(GroundlineModel):
     providers: list[ProviderStatus] = Field(default_factory=list)
 
 
+class ProviderReadinessCheck(GroundlineModel):
+    code: str
+    severity: Literal["error", "warning", "info"]
+    message: str
+
+
+class ProviderReadiness(GroundlineModel):
+    name: Literal["llm", "embedding", "rerank", "vector"]
+    provider: str
+    status: Literal["ready", "disabled", "warning", "error"]
+    model: str = ""
+    dimension: int | None = None
+    base_url: str = ""
+    endpoint_path: str = ""
+    api_key_env: str = ""
+    api_key_configured: bool = False
+    checks: list[ProviderReadinessCheck] = Field(default_factory=list)
+
+
+class ProviderReadinessReport(GroundlineModel):
+    ok: bool
+    provider_config_path: str
+    qdrant_url: str
+    providers: list[ProviderReadiness] = Field(default_factory=list)
+
+
 class DocumentIndexHealth(GroundlineModel):
     doc_id: str
     title: str | None = None

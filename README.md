@@ -56,6 +56,7 @@ groundline app init
 groundline app validate
 groundline app plan
 groundline app docs
+groundline app providers
 groundline app run --json
 groundline app status
 groundline app export .groundline/artifacts/demo-report.json
@@ -80,6 +81,8 @@ Each app run writes a manifest into its artifact with the recipe hash, input
 document hashes, provider status, executed steps, and pipeline run ids.
 Use `groundline app docs` to compare local source files with indexed document
 versions and detect new, changed, or missing sources before running ingest.
+Use `groundline app providers` to inspect LLM, embedding, rerank, and Qdrant
+readiness before wiring real API keys into the app.
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
@@ -182,6 +185,7 @@ POST   /demo
 POST   /app/plan
 POST   /app/validate
 POST   /app/docs
+GET    /app/providers
 POST   /app/run
 GET    /app/status
 GET    /app/artifacts/latest

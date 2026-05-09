@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from groundline.core.app_recipe import (
     app_document_registry,
+    app_provider_readiness,
     app_status,
     latest_app_artifact,
     load_app_recipe,
@@ -21,6 +22,7 @@ from groundline.core.schemas import (
     AppRunReport,
     AppStatusReport,
     AppValidationReport,
+    ProviderReadinessReport,
 )
 
 router = APIRouter(prefix="/app", tags=["app"])
@@ -56,6 +58,13 @@ def app_docs(recipe: AppRecipe | None = None) -> AppDocumentRegistryReport:
     recipe = recipe or load_app_recipe()
     engine = Groundline(settings)
     return app_document_registry(engine=engine, recipe=recipe)
+
+
+@router.get("/providers", response_model=ProviderReadinessReport)
+def app_providers() -> ProviderReadinessReport:
+    settings = get_settings()
+    engine = Groundline(settings)
+    return app_provider_readiness(engine)
 
 
 @router.get("/status", response_model=AppStatusReport)

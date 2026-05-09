@@ -3,6 +3,7 @@ from pathlib import Path
 
 from groundline.core.app_recipe import (
     app_document_registry,
+    app_provider_readiness,
     app_status,
     default_app_recipe,
     export_latest_artifact,
@@ -13,6 +14,7 @@ from groundline.core.app_recipe import (
     validate_app_recipe,
     write_app_recipe,
 )
+from groundline.core.config import Settings
 from groundline.core.engine import Groundline
 
 
@@ -196,3 +198,74 @@ def test_app_document_registry_tracks_source_state(tmp_path: Path, monkeypatch) 
     missing = app_document_registry(engine=engine, recipe=recipe)
     assert [item.status for item in missing.items] == ["missing"]
     assert missing.missing_total == 1
+
+
+def test_app_provider_readiness_reports_configuration_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "groundline.toml"
+    config_path.write_text(
+        """
+        [llm]
+        provider = "openai_compatible"
+        model = "chat-model"
+        base_url = "https://llm.example/v1"
+        api_key_env = "GROUNDLINE_TEST_LLM_KEY"
+
+        [embedding]
+        provider = "hash"
+        dimension = 16
+
+        [rerank]
+        provider = "keyword"
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GROUNDLINE_TEST_LLM_KEY", "test-key")
+    engine = Groundline(
+        Settings(
+            data_dir=tmp_path / "data",
+            provider_config_path=config_path,
+            qdrant_url="http://qdrant.local:6333",
+        )
+    )
+
+    readiness = app_provider_readiness(engine)
+    by_name = {provider.name: provider for provider in readiness.providers}
+
+    assert readiness.ok is True
+    assert by_name["llm"].status == "ready"
+    assert by_name["embedding"].status == "ready"
+    assert by_name["rerank"].status == "ready"
+    assert by_name["vector"].status == "ready"
+    assert by_name["vector"].dimension == 16
+
+
+def test_app_provider_readiness_reports_missing_http_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "groundline.toml"
+    config_path.write_text(
+        """
+        [llm]
+        provider = "openai_compatible"
+        api_key_env = "GROUNDLINE_MISSING_LLM_KEY"
+        """,
+        encoding="utf-8",
+    )
+    engine = Groundline(
+        Settings(
+            data_dir=tmp_path / "data",
+            provider_config_path=config_path,
+        )
+    )
+
+    readiness = app_provider_readiness(engine)
+    llm = {provider.name: provider for provider in readiness.providers}["llm"]
+
+    assert readiness.ok is False
+    assert llm.status == "error"
+    assert {check.code for check in llm.checks} >= {
+        "model_missing",
+        "base_url_missing",
+        "api_key_missing",
+    }
