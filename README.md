@@ -194,10 +194,17 @@ Start the API:
 groundline serve --host 127.0.0.1 --port 8080
 ```
 
+Open the local enterprise console:
+
+```text
+http://127.0.0.1:8080/ui
+```
+
 The API exposes the same core flow as the CLI:
 
 ```text
 GET    /health
+GET    /ui
 POST   /demo
 POST   /app/plan
 POST   /app/validate

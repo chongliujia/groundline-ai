@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Groundline Console</title>
+    <link rel="stylesheet" href="/ui/assets/console.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <div class="brand-mark">G</div>
+          <div>
+            <div class="brand-name">Groundline</div>
+            <div class="brand-subtitle">Console</div>
+          </div>
+        </div>
+        <nav class="nav" id="nav">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="documents">Documents</button>
+          <button class="nav-item" data-view="search">Search</button>
+          <button class="nav-item" data-view="runs">Runs</button>
+          <button class="nav-item" data-view="compare">Compare</button>
+          <button class="nav-item" data-view="providers">Providers</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="status-dot" id="api-dot"></span>
+          <span id="api-status">Checking API</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">Enterprise Retrieval Operations</div>
+            <h1 id="page-title">Dashboard</h1>
+          </div>
+          <div class="runtime">
+            <div>
+              <span class="muted">Collection</span>
+              <strong id="runtime-collection">-</strong>
+            </div>
+            <div>
+              <span class="muted">Profile</span>
+              <strong id="runtime-profile">default</strong>
+            </div>
+          </div>
+        </header>
+
+        <section class="notice" id="notice" hidden></section>
+
+        <section class="view active" id="view-dashboard">
+          <div class="kpi-grid">
+            <div class="metric">
+              <span>App Status</span>
+              <strong id="kpi-app">Unknown</strong>
+            </div>
+            <div class="metric">
+              <span>Providers</span>
+              <strong id="kpi-providers">Unknown</strong>
+            </div>
+            <div class="metric">
+              <span>Latest Artifact</span>
+              <strong id="kpi-artifact">None</strong>
+            </div>
+            <div class="metric">
+              <span>Latest Run</span>
+              <strong id="kpi-run">None</strong>
+            </div>
+          </div>
+          <div class="two-column">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Provider Readiness</h2>
+                <button class="ghost" data-action="refresh-dashboard">Refresh</button>
+              </div>
+              <div id="dashboard-providers" class="table-host"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Operational Snapshot</h2>
+              </div>
+              <dl class="definition-list" id="dashboard-status"></dl>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-documents">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Document Registry</h2>
+              <button data-action="load-docs">Refresh</button>
+            </div>
+            <div id="documents-table" class="table-host"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-search">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Search Workbench</h2>
+              <button data-action="run-search">Run Query</button>
+            </div>
+            <div class="form-grid">
+              <label>
+                Query
+                <input id="search-query" value="How should a developer rotate a leaked API key?" />
+              </label>
+              <label>
+                Collection
+                <input id="search-collection" />
+              </label>
+              <label>
+                Top K
+                <input id="search-top-k" type="number" min="1" max="100" value="6" />
+              </label>
+              <label class="checkbox-row">
+                <input id="search-trace" type="checkbox" checked />
+                Include trace
+              </label>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Contexts</h2>
+              <span class="muted" id="search-summary">No query run</span>
+            </div>
+            <div id="search-results" class="result-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-runs">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>App Run</h2>
+              <div class="button-row">
+                <button class="ghost" data-action="validate-app">Validate</button>
+                <button data-action="run-app">Run</button>
+              </div>
+            </div>
+            <div id="run-output" class="table-host"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-compare">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Artifact Compare</h2>
+              <button data-action="run-compare">Compare</button>
+            </div>
+            <div class="form-grid two">
+              <label>
+                Base artifact
+                <input id="compare-base" placeholder=".groundline/artifacts/base.json" />
+              </label>
+              <label>
+                Target artifact
+                <input id="compare-target" placeholder=".groundline/artifacts/latest.json" />
+              </label>
+            </div>
+            <div id="compare-output" class="table-host"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-providers">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Provider Boundary</h2>
+              <button data-action="load-providers">Refresh</button>
+            </div>
+            <div id="providers-table" class="table-host"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script src="/ui/assets/console.js"></script>
+  </body>
+</html>

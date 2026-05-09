@@ -44,6 +44,7 @@ groundline = "groundline.cli.main:app"
 packages = ["groundline"]
 
 [tool.hatch.build.targets.wheel.force-include]
+"groundline/app/static" = "groundline/app/static"
 "groundline/templates" = "groundline/templates"
 
 [tool.black]
