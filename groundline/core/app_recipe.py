@@ -11,9 +11,13 @@ from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppArtifact,
     AppExecutionReport,
+    AppPlanReport,
+    AppPlanStep,
     AppRecipe,
     AppRunReport,
     AppStatusReport,
+    AppValidationIssue,
+    AppValidationReport,
     DemoStepReport,
 )
 from groundline.evals.runner import run_eval
@@ -36,6 +40,36 @@ def load_app_recipe(path: Path = DEFAULT_RECIPE_PATH) -> AppRecipe:
 def write_app_recipe(path: Path, recipe: AppRecipe) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_recipe_toml(recipe), encoding="utf-8")
+
+
+def plan_app_recipe(
+    engine: Groundline,
+    recipe: AppRecipe,
+    data_dir: Path,
+) -> AppPlanReport:
+    return AppPlanReport(
+        recipe=recipe,
+        data_dir=str(data_dir),
+        collection_exists=recipe.collection in engine.list_collections(),
+        providers=engine.provider_status(),
+        latest_artifact=latest_app_artifact(recipe),
+        steps=_planned_steps(recipe),
+    )
+
+
+def validate_app_recipe(
+    engine: Groundline,
+    recipe: AppRecipe,
+    data_dir: Path,
+) -> AppValidationReport:
+    plan = plan_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    issues = _validation_issues(recipe, plan)
+    return AppValidationReport(
+        recipe=recipe,
+        ok=not any(issue.severity == "error" for issue in issues),
+        issues=issues,
+        plan=plan,
+    )
 
 
 def run_app_recipe(
@@ -206,6 +240,183 @@ def latest_app_artifact(recipe: AppRecipe) -> AppArtifact | None:
     if not latest_path.exists():
         return None
     return AppArtifact(kind="latest", path=str(latest_path))
+
+
+def _planned_steps(recipe: AppRecipe) -> list[AppPlanStep]:
+    return [
+        AppPlanStep(
+            name="clear",
+            enabled=recipe.reset_collection,
+            description="Clear collection metadata and vector index before ingest.",
+            destructive=True,
+        ),
+        AppPlanStep(
+            name="ingest",
+            description="Ingest supported local documents into the configured collection.",
+        ),
+        AppPlanStep(
+            name="health",
+            description="Check metadata and vector index consistency after ingest.",
+        ),
+        AppPlanStep(
+            name="query",
+            enabled=recipe.run_query,
+            description="Retrieve grounded contexts for the configured smoke query.",
+        ),
+        AppPlanStep(
+            name="answer",
+            enabled=recipe.run_answer,
+            description="Generate an answer from retrieved contexts when LLM is configured.",
+        ),
+        AppPlanStep(
+            name="eval",
+            enabled=recipe.run_eval,
+            description="Run the configured JSONL evalset.",
+        ),
+        AppPlanStep(
+            name="reindex",
+            enabled=recipe.run_reindex,
+            description="Rebuild vector points for active latest chunks.",
+        ),
+        AppPlanStep(
+            name="health_after_reindex",
+            enabled=recipe.run_reindex,
+            description="Check collection health again after reindex.",
+        ),
+        AppPlanStep(
+            name="artifact",
+            description="Write latest and timestamped app run artifacts.",
+        ),
+    ]
+
+
+def _validation_issues(
+    recipe: AppRecipe,
+    plan: AppPlanReport,
+) -> list[AppValidationIssue]:
+    issues: list[AppValidationIssue] = []
+    docs_path = Path(recipe.docs_path)
+    evalset = Path(recipe.evalset)
+    artifacts_dir = Path(recipe.artifacts_dir)
+
+    if not docs_path.exists():
+        issues.append(
+            AppValidationIssue(
+                severity="error",
+                code="docs_path_missing",
+                message="docs_path does not exist.",
+                path=recipe.docs_path,
+            )
+        )
+    elif not docs_path.is_file() and not docs_path.is_dir():
+        issues.append(
+            AppValidationIssue(
+                severity="error",
+                code="docs_path_invalid",
+                message="docs_path must be a file or directory.",
+                path=recipe.docs_path,
+            )
+        )
+
+    if recipe.run_eval and not evalset.exists():
+        issues.append(
+            AppValidationIssue(
+                severity="error",
+                code="evalset_missing",
+                message="run_eval is enabled but evalset does not exist.",
+                path=recipe.evalset,
+            )
+        )
+
+    if (recipe.run_query or recipe.run_answer) and not recipe.query_text.strip():
+        issues.append(
+            AppValidationIssue(
+                severity="error",
+                code="query_text_empty",
+                message="query_text is required when query or answer steps are enabled.",
+            )
+        )
+
+    if recipe.reset_collection:
+        issues.append(
+            AppValidationIssue(
+                severity="warning",
+                code="reset_collection_enabled",
+                message="reset_collection will clear existing collection data before ingest.",
+            )
+        )
+
+    if not plan.collection_exists:
+        issues.append(
+            AppValidationIssue(
+                severity="info",
+                code="collection_will_be_created",
+                message="collection does not exist yet; ingest will create it.",
+            )
+        )
+
+    provider_by_name = {provider.name: provider for provider in plan.providers.providers}
+    llm = provider_by_name["llm"]
+    embedding = provider_by_name["embedding"]
+    rerank = provider_by_name["rerank"]
+
+    if recipe.run_answer and llm.provider.lower() in {"none", "disabled"}:
+        issues.append(
+            AppValidationIssue(
+                severity="warning",
+                code="llm_disabled",
+                message="run_answer is enabled but LLM provider is disabled.",
+            )
+        )
+
+    if embedding.provider.lower() in {"none", "disabled"}:
+        issues.append(
+            AppValidationIssue(
+                severity="info",
+                code="embedding_disabled",
+                message="embedding provider is disabled; retrieval will use BM25 only.",
+            )
+        )
+
+    if recipe.run_reindex and embedding.provider.lower() in {"none", "disabled"}:
+        issues.append(
+            AppValidationIssue(
+                severity="warning",
+                code="reindex_without_embedding",
+                message="run_reindex is enabled but embedding provider is disabled.",
+            )
+        )
+
+    if rerank.provider.lower() in {"none", "disabled"}:
+        issues.append(
+            AppValidationIssue(
+                severity="info",
+                code="rerank_disabled",
+                message="rerank provider is disabled; fused retrieval order will be used.",
+            )
+        )
+
+    if not any([recipe.run_query, recipe.run_answer, recipe.run_eval, recipe.run_reindex]):
+        issues.append(
+            AppValidationIssue(
+                severity="warning",
+                code="only_ingest_enabled",
+                message="app run will only ingest and check health.",
+            )
+        )
+
+    artifacts_parent = artifacts_dir.parent
+    if artifacts_parent != Path(".") and not artifacts_parent.exists():
+        issues.append(
+            AppValidationIssue(
+                severity="info",
+                code="artifacts_parent_will_be_created",
+                message="artifact parent directory does not exist yet and will be created.",
+                path=str(artifacts_parent),
+            )
+        )
+
+    return issues
 
 
 def _recipe_toml(recipe: AppRecipe) -> str:

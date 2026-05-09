@@ -485,6 +485,36 @@ class AppArtifact(GroundlineModel):
     path: str
 
 
+class AppPlanStep(GroundlineModel):
+    name: str
+    enabled: bool = True
+    description: str
+    destructive: bool = False
+
+
+class AppPlanReport(GroundlineModel):
+    recipe: AppRecipe
+    data_dir: str
+    collection_exists: bool
+    providers: ProviderStatusResponse
+    latest_artifact: AppArtifact | None = None
+    steps: list[AppPlanStep] = Field(default_factory=list)
+
+
+class AppValidationIssue(GroundlineModel):
+    severity: Literal["error", "warning", "info"]
+    code: str
+    message: str
+    path: str | None = None
+
+
+class AppValidationReport(GroundlineModel):
+    recipe: AppRecipe
+    ok: bool
+    issues: list[AppValidationIssue] = Field(default_factory=list)
+    plan: AppPlanReport
+
+
 class AppExecutionReport(GroundlineModel):
     collection: str
     data_dir: str

@@ -3,9 +3,13 @@
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppExecutionReport,
+    AppPlanReport,
+    AppPlanStep,
     AppRecipe,
     AppRunReport,
     AppStatusReport,
+    AppValidationIssue,
+    AppValidationReport,
     Block,
     Chunk,
     DemoReport,
@@ -21,9 +25,13 @@ from groundline.core.schemas import (
 
 __all__ = [
     "AppExecutionReport",
+    "AppPlanReport",
+    "AppPlanStep",
     "AppRecipe",
     "AppRunReport",
     "AppStatusReport",
+    "AppValidationIssue",
+    "AppValidationReport",
     "Block",
     "Chunk",
     "DemoReport",

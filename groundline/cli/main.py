@@ -15,15 +15,19 @@ from groundline.core.app_recipe import (
     default_app_recipe,
     export_latest_artifact,
     load_app_recipe,
+    plan_app_recipe,
     run_app_recipe,
+    validate_app_recipe,
     write_app_recipe,
 )
 from groundline.core.config import Settings
 from groundline.core.demo import run_demo_flow
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppPlanReport,
     AppRunReport,
     AppStatusReport,
+    AppValidationReport,
     CollectionHealthReport,
     CollectionOperationResponse,
     DemoReport,
@@ -189,6 +193,54 @@ def app_run(
         _print_json_model(report)
         return
     _print_app_run_summary(report)
+
+
+@app_commands.command("plan")
+def app_plan(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    recipe = load_app_recipe(recipe_path)
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = plan_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_plan(report)
+
+
+@app_commands.command("validate")
+def app_validate(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    recipe = load_app_recipe(recipe_path)
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = validate_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    if json_output:
+        _print_json_model(report)
+    else:
+        _print_app_validation(report)
+    if not report.ok:
+        raise typer.Exit(1)
 
 
 @app_commands.command("status")
@@ -807,6 +859,51 @@ def _print_app_run_summary(report: AppRunReport) -> None:
         console.print(f"[yellow]Answer not generated[/yellow]: {run.answer.error}")
     for artifact in report.artifacts:
         console.print(f"{artifact.kind}: {artifact.path}")
+
+
+def _print_app_plan(report: AppPlanReport) -> None:
+    console.rule("[bold]Groundline App Plan[/bold]")
+    console.print(f"App: {report.recipe.name}")
+    console.print(f"Collection: {report.recipe.collection}")
+    console.print(f"Data dir: {report.data_dir}")
+    console.print(f"Collection exists: {'yes' if report.collection_exists else 'no'}")
+    table = Table(title="Planned Steps")
+    table.add_column("Step")
+    table.add_column("Enabled")
+    table.add_column("Destructive")
+    table.add_column("Description")
+    for step in report.steps:
+        table.add_row(
+            step.name,
+            "yes" if step.enabled else "no",
+            "yes" if step.destructive else "no",
+            step.description,
+        )
+    console.print(table)
+    if report.latest_artifact:
+        console.print(f"Latest artifact: {report.latest_artifact.path}")
+
+
+def _print_app_validation(report: AppValidationReport) -> None:
+    console.rule("[bold]Groundline App Validate[/bold]")
+    console.print(f"App: {report.recipe.name}")
+    console.print(f"OK: {'yes' if report.ok else 'no'}")
+    if not report.issues:
+        console.print("No validation issues.")
+        return
+    table = Table(title="Validation Issues")
+    table.add_column("Severity")
+    table.add_column("Code")
+    table.add_column("Message")
+    table.add_column("Path")
+    for issue in report.issues:
+        table.add_row(
+            issue.severity,
+            issue.code,
+            issue.message,
+            issue.path or "",
+        )
+    console.print(table)
 
 
 def _print_app_status(report: AppStatusReport) -> None:

@@ -53,6 +53,8 @@ For a reusable app-style workflow, initialize and run an app recipe:
 
 ```bash
 groundline app init
+groundline app validate
+groundline app plan
 groundline app run --json
 groundline app status
 groundline app export .groundline/artifacts/demo-report.json
@@ -61,7 +63,8 @@ groundline app export .groundline/artifacts/demo-report.json
 `groundline app run` is the engineering entrypoint: it uses the recipe to run an
 incremental ingest plus optional query, answer, eval, and reindex steps. It does
 not clear the collection unless `reset_collection = true` is set in
-`groundline.app.toml`.
+`groundline.app.toml`. `groundline app validate` and `groundline app plan` are
+side-effect-free checks for developer demos and CI.
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
@@ -161,6 +164,8 @@ The API exposes the same core flow as the CLI:
 ```text
 GET    /health
 POST   /demo
+POST   /app/plan
+POST   /app/validate
 POST   /app/run
 GET    /app/status
 GET    /app/artifacts/latest

@@ -226,13 +226,24 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert demo.json()["query_result"]["contexts"]
     assert demo.json()["runs"]
 
+    app_recipe = {
+        "name": "api-app",
+        "collection": "api_app",
+        "artifacts_dir": str(tmp_path / "api-artifacts"),
+    }
+    app_plan = client.post("/app/plan", json=app_recipe)
+    assert app_plan.status_code == 200
+    assert app_plan.json()["steps"][0]["name"] == "clear"
+    assert app_plan.json()["collection_exists"] is False
+
+    app_validate = client.post("/app/validate", json=app_recipe)
+    assert app_validate.status_code == 200
+    assert app_validate.json()["ok"] is True
+    assert app_validate.json()["plan"]["recipe"]["name"] == "api-app"
+
     app_run = client.post(
         "/app/run",
-        json={
-            "name": "api-app",
-            "collection": "api_app",
-            "artifacts_dir": str(tmp_path / "api-artifacts"),
-        },
+        json=app_recipe,
     )
     assert app_run.status_code == 200
     assert app_run.json()["recipe"]["name"] == "api-app"

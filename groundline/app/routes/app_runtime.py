@@ -6,11 +6,20 @@ from groundline.core.app_recipe import (
     app_status,
     latest_app_artifact,
     load_app_recipe,
+    plan_app_recipe,
     run_app_recipe,
+    validate_app_recipe,
 )
 from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
-from groundline.core.schemas import AppArtifact, AppRecipe, AppRunReport, AppStatusReport
+from groundline.core.schemas import (
+    AppArtifact,
+    AppPlanReport,
+    AppRecipe,
+    AppRunReport,
+    AppStatusReport,
+    AppValidationReport,
+)
 
 router = APIRouter(prefix="/app", tags=["app"])
 
@@ -21,6 +30,22 @@ def run_app(recipe: AppRecipe | None = None) -> AppRunReport:
     recipe = recipe or load_app_recipe()
     engine = Groundline(settings)
     return run_app_recipe(engine=engine, recipe=recipe, data_dir=settings.data_dir)
+
+
+@router.post("/plan", response_model=AppPlanReport)
+def plan_app(recipe: AppRecipe | None = None) -> AppPlanReport:
+    settings = get_settings()
+    recipe = recipe or load_app_recipe()
+    engine = Groundline(settings)
+    return plan_app_recipe(engine=engine, recipe=recipe, data_dir=settings.data_dir)
+
+
+@router.post("/validate", response_model=AppValidationReport)
+def validate_app(recipe: AppRecipe | None = None) -> AppValidationReport:
+    settings = get_settings()
+    recipe = recipe or load_app_recipe()
+    engine = Groundline(settings)
+    return validate_app_recipe(engine=engine, recipe=recipe, data_dir=settings.data_dir)
 
 
 @router.get("/status", response_model=AppStatusReport)
