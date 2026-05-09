@@ -13,13 +13,16 @@ from groundline.core.app_recipe import (
     DEFAULT_RECIPE_PATH,
     app_document_registry,
     app_provider_readiness,
+    app_runtime_profile,
     app_status,
+    apply_app_profile,
     default_app_recipe,
     export_latest_artifact,
     init_app_project,
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
+    settings_for_app_runtime,
     validate_app_recipe,
     write_app_recipe,
 )
@@ -211,13 +214,23 @@ def app_run(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    recipe = load_app_recipe(recipe_path)
-    engine = Groundline(Settings(data_dir=data_dir))
-    report = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    recipe, runtime, engine, runtime_data_dir = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
+    report = run_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=runtime_data_dir,
+        runtime=runtime,
+    )
     if json_output:
         _print_json_model(report)
         return
@@ -234,13 +247,23 @@ def app_plan(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    recipe = load_app_recipe(recipe_path)
-    engine = Groundline(Settings(data_dir=data_dir))
-    report = plan_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    recipe, runtime, engine, runtime_data_dir = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
+    report = plan_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=runtime_data_dir,
+        runtime=runtime,
+    )
     if json_output:
         _print_json_model(report)
         return
@@ -257,13 +280,23 @@ def app_validate(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    recipe = load_app_recipe(recipe_path)
-    engine = Groundline(Settings(data_dir=data_dir))
-    report = validate_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    recipe, runtime, engine, runtime_data_dir = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
+    report = validate_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=runtime_data_dir,
+        runtime=runtime,
+    )
     if json_output:
         _print_json_model(report)
     else:
@@ -282,12 +315,17 @@ def app_docs(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    recipe = load_app_recipe(recipe_path)
-    engine = Groundline(Settings(data_dir=data_dir))
+    recipe, _, engine, _ = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
     report = app_document_registry(engine=engine, recipe=recipe)
     if json_output:
         _print_json_model(report)
@@ -297,15 +335,25 @@ def app_docs(
 
 @app_commands.command("providers")
 def app_providers(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    engine = Groundline(Settings(data_dir=data_dir))
+    _, _, engine, _ = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
     report = app_provider_readiness(engine)
     if json_output:
         _print_json_model(report)
@@ -323,12 +371,17 @@ def app_status_cmd(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
-    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
-        ".groundline"
-    ),
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(help="Local Groundline data dir."),
+    ] = None,
 ) -> None:
-    recipe = load_app_recipe(recipe_path)
-    engine = Groundline(Settings(data_dir=data_dir))
+    recipe, _, engine, _ = _load_app_context(
+        recipe_path=recipe_path,
+        profile=profile,
+        data_dir=data_dir,
+    )
     report = app_status(engine, recipe)
     if json_output:
         _print_json_model(report)
@@ -343,12 +396,16 @@ def app_export(
         Path,
         typer.Option("--recipe", help="App recipe TOML path."),
     ] = DEFAULT_RECIPE_PATH,
+    profile: Annotated[str, typer.Option(help="App profile name.")] = "default",
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
 ) -> None:
-    artifact = export_latest_artifact(load_app_recipe(recipe_path), output_path)
+    artifact = export_latest_artifact(
+        apply_app_profile(load_app_recipe(recipe_path), profile),
+        output_path,
+    )
     if json_output:
         _print_json_model(artifact)
         return
@@ -896,6 +953,24 @@ def _print_pipeline_run(run: PipelineRun) -> None:
             event.doc_id or "",
         )
     console.print(events)
+
+
+def _load_app_context(
+    recipe_path: Path,
+    profile: str,
+    data_dir: Path | None,
+):
+    base_recipe = load_app_recipe(recipe_path)
+    recipe = apply_app_profile(base_recipe, profile)
+    runtime = app_runtime_profile(
+        settings=Settings(),
+        recipe=base_recipe,
+        profile=profile,
+        data_dir=data_dir,
+    )
+    runtime_data_dir = Path(runtime.data_dir)
+    engine = Groundline(settings_for_app_runtime(runtime))
+    return recipe, runtime, engine, runtime_data_dir
 
 
 def _print_app_run_summary(report: AppRunReport) -> None:

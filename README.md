@@ -58,6 +58,7 @@ groundline app plan
 groundline app docs
 groundline app providers
 groundline app run --json
+groundline app run --profile dev
 groundline app status
 groundline app export .groundline/artifacts/demo-report.json
 ```
@@ -83,6 +84,8 @@ Use `groundline app docs` to compare local source files with indexed document
 versions and detect new, changed, or missing sources before running ingest.
 Use `groundline app providers` to inspect LLM, embedding, rerank, and Qdrant
 readiness before wiring real API keys into the app.
+Use profiles in `groundline.app.toml`, such as `[profiles.dev]`, to override
+collection, data dir, artifacts, Qdrant URL, or provider config per environment.
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.

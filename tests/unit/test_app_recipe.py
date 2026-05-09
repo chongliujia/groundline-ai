@@ -4,18 +4,22 @@ from pathlib import Path
 from groundline.core.app_recipe import (
     app_document_registry,
     app_provider_readiness,
+    app_runtime_profile,
     app_status,
+    apply_app_profile,
     default_app_recipe,
     export_latest_artifact,
     init_app_project,
     load_app_recipe,
     plan_app_recipe,
     run_app_recipe,
+    settings_for_app_runtime,
     validate_app_recipe,
     write_app_recipe,
 )
 from groundline.core.config import Settings
 from groundline.core.engine import Groundline
+from groundline.core.schemas import AppProfile
 
 
 def test_app_recipe_run_writes_artifacts_and_status(tmp_path: Path) -> None:
@@ -162,6 +166,7 @@ def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch)
     run = run_app_recipe(engine=engine, recipe=recipe, data_dir=Path(".groundline"))
 
     assert recipe.collection == "support_bot"
+    assert set(recipe.profiles) == {"demo", "dev"}
     assert validation.ok is True
     assert run.run.ingest.documents
     assert run.run.manifest.sources[0].path == "docs/policy.md"
@@ -171,6 +176,50 @@ def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch)
 
     skipped = init_app_project(project_dir)
     assert not any(file.created for file in skipped.files)
+
+
+def test_app_profile_overrides_recipe_and_runtime(tmp_path: Path) -> None:
+    recipe = default_app_recipe().model_copy(
+        update={
+            "collection": "base",
+            "artifacts_dir": ".groundline/base/artifacts",
+            "profiles": {
+                "dev": AppProfile(
+                    collection="base_dev",
+                    data_dir=str(tmp_path / "dev-data"),
+                    provider_config_path=str(tmp_path / "dev.toml"),
+                    qdrant_url="http://qdrant.dev:6333",
+                    artifacts_dir=".groundline/dev/artifacts",
+                    run_eval=True,
+                )
+            },
+        }
+    )
+    recipe_path = tmp_path / "groundline.app.toml"
+    write_app_recipe(recipe_path, recipe)
+
+    loaded = load_app_recipe(recipe_path)
+    resolved = apply_app_profile(loaded, "dev")
+    runtime = app_runtime_profile(
+        settings=Settings(data_dir=tmp_path / "base-data"),
+        recipe=loaded,
+        profile="dev",
+    )
+    engine = Groundline(settings_for_app_runtime(runtime))
+    plan = plan_app_recipe(
+        engine=engine,
+        recipe=resolved,
+        data_dir=Path(runtime.data_dir),
+        runtime=runtime,
+    )
+
+    assert resolved.collection == "base_dev"
+    assert resolved.artifacts_dir == ".groundline/dev/artifacts"
+    assert resolved.run_eval is True
+    assert runtime.data_dir == str(tmp_path / "dev-data")
+    assert runtime.provider_config_path == str(tmp_path / "dev.toml")
+    assert runtime.qdrant_url == "http://qdrant.dev:6333"
+    assert plan.runtime.profile == "dev"
 
 
 def test_app_document_registry_tracks_source_state(tmp_path: Path, monkeypatch) -> None:

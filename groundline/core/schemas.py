@@ -504,6 +504,37 @@ class AppRecipe(GroundlineModel):
     run_reindex: bool = False
     include_trace: bool = True
     artifacts_dir: str = ".groundline/artifacts"
+    profiles: dict[str, AppProfile] = Field(default_factory=dict)
+
+
+class AppProfile(GroundlineModel):
+    name: str | None = None
+    collection: str | None = None
+    docs_path: str | None = None
+    evalset: str | None = None
+    query_text: str | None = None
+    top_k: int | None = Field(default=None, ge=1, le=100)
+    context_window: int | None = Field(default=None, ge=0, le=5)
+    max_context_chars: int | None = Field(default=None, ge=1)
+    reset_collection: bool | None = None
+    run_query: bool | None = None
+    run_answer: bool | None = None
+    run_eval: bool | None = None
+    run_reindex: bool | None = None
+    include_trace: bool | None = None
+    artifacts_dir: str | None = None
+    data_dir: str | None = None
+    provider_config_path: str | None = None
+    qdrant_url: str | None = None
+    sqlite_path: str | None = None
+
+
+class AppRuntimeProfile(GroundlineModel):
+    profile: str = "default"
+    data_dir: str
+    provider_config_path: str
+    qdrant_url: str
+    sqlite_path: str | None = None
 
 
 class AppArtifact(GroundlineModel):
@@ -531,6 +562,7 @@ class AppPlanStep(GroundlineModel):
 
 class AppPlanReport(GroundlineModel):
     recipe: AppRecipe
+    runtime: AppRuntimeProfile
     data_dir: str
     collection_exists: bool
     providers: ProviderStatusResponse
@@ -561,9 +593,12 @@ class AppSourceSnapshot(GroundlineModel):
 
 class AppRunManifest(GroundlineModel):
     manifest_version: str = "app-manifest.v0.1"
+    profile: str = "default"
     recipe_hash: str
     collection: str
     data_dir: str
+    provider_config_path: str
+    qdrant_url: str
     docs_path: str
     evalset: str
     query_text: str

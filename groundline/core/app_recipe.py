@@ -6,6 +6,7 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+from groundline.core.config import Settings
 from groundline.core.demo import demo_step
 from groundline.core.engine import Groundline
 from groundline.core.hashing import hash_file, hash_text
@@ -17,9 +18,11 @@ from groundline.core.schemas import (
     AppInitReport,
     AppPlanReport,
     AppPlanStep,
+    AppProfile,
     AppRecipe,
     AppRunManifest,
     AppRunReport,
+    AppRuntimeProfile,
     AppSourceSnapshot,
     AppStatusReport,
     AppTemplateFile,
@@ -56,6 +59,57 @@ def write_app_recipe(path: Path, recipe: AppRecipe) -> None:
     path.write_text(_recipe_toml(recipe), encoding="utf-8")
 
 
+def apply_app_profile(recipe: AppRecipe, profile: str | None) -> AppRecipe:
+    if not profile or profile == "default":
+        return recipe
+    profile_config = recipe.profiles.get(profile)
+    if profile_config is None:
+        raise ValueError(f"Unknown app profile: {profile}")
+    overrides = _profile_recipe_overrides(profile_config)
+    return recipe.model_copy(update=overrides)
+
+
+def app_runtime_profile(
+    settings: Settings,
+    recipe: AppRecipe,
+    profile: str | None,
+    data_dir: Path | None = None,
+) -> AppRuntimeProfile:
+    profile_name = profile or "default"
+    profile_config = recipe.profiles.get(profile_name) if profile_name != "default" else None
+    runtime_data_dir = data_dir or Path(
+        profile_config.data_dir if profile_config and profile_config.data_dir else settings.data_dir
+    )
+    return AppRuntimeProfile(
+        profile=profile_name,
+        data_dir=str(runtime_data_dir),
+        provider_config_path=(
+            profile_config.provider_config_path
+            if profile_config and profile_config.provider_config_path
+            else str(settings.provider_config_path)
+        ),
+        qdrant_url=(
+            profile_config.qdrant_url
+            if profile_config and profile_config.qdrant_url
+            else settings.qdrant_url
+        ),
+        sqlite_path=(
+            profile_config.sqlite_path
+            if profile_config and profile_config.sqlite_path
+            else str(settings.sqlite_path) if settings.sqlite_path else None
+        ),
+    )
+
+
+def settings_for_app_runtime(runtime: AppRuntimeProfile) -> Settings:
+    return Settings(
+        data_dir=Path(runtime.data_dir),
+        provider_config_path=Path(runtime.provider_config_path),
+        qdrant_url=runtime.qdrant_url,
+        sqlite_path=Path(runtime.sqlite_path) if runtime.sqlite_path else None,
+    )
+
+
 def init_app_project(project_dir: Path, force: bool = False) -> AppInitReport:
     recipe = AppRecipe(
         name=project_dir.name or "groundline-app",
@@ -64,6 +118,18 @@ def init_app_project(project_dir: Path, force: bool = False) -> AppInitReport:
         evalset="evalset.jsonl",
         query_text="hotel standard",
         artifacts_dir=".groundline/artifacts",
+        profiles={
+            "dev": AppProfile(
+                collection=f"{_collection_name(project_dir.name)}_dev",
+                data_dir=".groundline/dev",
+                artifacts_dir=".groundline/dev/artifacts",
+            ),
+            "demo": AppProfile(
+                collection=f"{_collection_name(project_dir.name)}_demo",
+                data_dir=".groundline/demo",
+                artifacts_dir=".groundline/demo/artifacts",
+            ),
+        },
     )
     files: list[AppTemplateFile] = []
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -93,9 +159,12 @@ def plan_app_recipe(
     engine: Groundline,
     recipe: AppRecipe,
     data_dir: Path,
+    runtime: AppRuntimeProfile | None = None,
 ) -> AppPlanReport:
+    runtime = runtime or _runtime_from_engine(engine, data_dir=data_dir)
     return AppPlanReport(
         recipe=recipe,
+        runtime=runtime,
         data_dir=str(data_dir),
         collection_exists=recipe.collection in engine.list_collections(),
         providers=engine.provider_status(),
@@ -108,8 +177,14 @@ def validate_app_recipe(
     engine: Groundline,
     recipe: AppRecipe,
     data_dir: Path,
+    runtime: AppRuntimeProfile | None = None,
 ) -> AppValidationReport:
-    plan = plan_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    plan = plan_app_recipe(
+        engine=engine,
+        recipe=recipe,
+        data_dir=data_dir,
+        runtime=runtime,
+    )
     issues = _validation_issues(recipe, plan)
     return AppValidationReport(
         recipe=recipe,
@@ -204,7 +279,9 @@ def run_app_recipe(
     recipe: AppRecipe,
     data_dir: Path,
     write_artifacts: bool = True,
+    runtime: AppRuntimeProfile | None = None,
 ) -> AppRunReport:
+    runtime = runtime or _runtime_from_engine(engine, data_dir=data_dir)
     started_at = datetime.now(UTC)
     sources = _source_snapshots(Path(recipe.docs_path))
     collection = recipe.collection
@@ -301,9 +378,12 @@ def run_app_recipe(
     runs = engine.list_pipeline_runs(collection=collection, limit=20)
     finished_at = datetime.now(UTC)
     manifest = AppRunManifest(
+        profile=runtime.profile,
         recipe_hash=_recipe_hash(recipe),
         collection=collection,
         data_dir=str(data_dir),
+        provider_config_path=runtime.provider_config_path,
+        qdrant_url=runtime.qdrant_url,
         docs_path=recipe.docs_path,
         evalset=recipe.evalset,
         query_text=recipe.query_text,
@@ -575,6 +655,25 @@ def _recipe_hash(recipe: AppRecipe) -> str:
     return hash_text(payload)
 
 
+def _runtime_from_engine(engine: Groundline, data_dir: Path) -> AppRuntimeProfile:
+    return AppRuntimeProfile(
+        profile="default",
+        data_dir=str(data_dir),
+        provider_config_path=str(engine.settings.provider_config_path),
+        qdrant_url=engine.settings.qdrant_url,
+        sqlite_path=str(engine.settings.sqlite_path) if engine.settings.sqlite_path else None,
+    )
+
+
+def _profile_recipe_overrides(profile: AppProfile) -> dict[str, object]:
+    runtime_fields = {"data_dir", "provider_config_path", "qdrant_url", "sqlite_path"}
+    return {
+        key: value
+        for key, value in profile.model_dump(exclude_none=True).items()
+        if key not in runtime_fields
+    }
+
+
 def _source_snapshots(path: Path) -> list[AppSourceSnapshot]:
     if not path.exists():
         return []
@@ -827,26 +926,30 @@ def _current_version(
 
 
 def _recipe_toml(recipe: AppRecipe) -> str:
-    return "\n".join(
-        [
-            f'name = "{_escape_toml(recipe.name)}"',
-            f'collection = "{_escape_toml(recipe.collection)}"',
-            f'docs_path = "{_escape_toml(recipe.docs_path)}"',
-            f'evalset = "{_escape_toml(recipe.evalset)}"',
-            f'query_text = "{_escape_toml(recipe.query_text)}"',
-            f"top_k = {recipe.top_k}",
-            f"context_window = {recipe.context_window}",
-            f"max_context_chars = {recipe.max_context_chars}",
-            f"reset_collection = {_toml_bool(recipe.reset_collection)}",
-            f"run_query = {_toml_bool(recipe.run_query)}",
-            f"run_answer = {_toml_bool(recipe.run_answer)}",
-            f"run_eval = {_toml_bool(recipe.run_eval)}",
-            f"run_reindex = {_toml_bool(recipe.run_reindex)}",
-            f"include_trace = {_toml_bool(recipe.include_trace)}",
-            f'artifacts_dir = "{_escape_toml(recipe.artifacts_dir)}"',
-            "",
-        ]
-    )
+    lines = [
+        f'name = "{_escape_toml(recipe.name)}"',
+        f'collection = "{_escape_toml(recipe.collection)}"',
+        f'docs_path = "{_escape_toml(recipe.docs_path)}"',
+        f'evalset = "{_escape_toml(recipe.evalset)}"',
+        f'query_text = "{_escape_toml(recipe.query_text)}"',
+        f"top_k = {recipe.top_k}",
+        f"context_window = {recipe.context_window}",
+        f"max_context_chars = {recipe.max_context_chars}",
+        f"reset_collection = {_toml_bool(recipe.reset_collection)}",
+        f"run_query = {_toml_bool(recipe.run_query)}",
+        f"run_answer = {_toml_bool(recipe.run_answer)}",
+        f"run_eval = {_toml_bool(recipe.run_eval)}",
+        f"run_reindex = {_toml_bool(recipe.run_reindex)}",
+        f"include_trace = {_toml_bool(recipe.include_trace)}",
+        f'artifacts_dir = "{_escape_toml(recipe.artifacts_dir)}"',
+        "",
+    ]
+    for name, profile in sorted(recipe.profiles.items()):
+        lines.append(f'[profiles."{_escape_toml(name)}"]')
+        for key, value in profile.model_dump(exclude_none=True).items():
+            lines.append(f"{key} = {_toml_value(value)}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _escape_toml(value: str) -> str:
@@ -855,6 +958,14 @@ def _escape_toml(value: str) -> str:
 
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return _toml_bool(value)
+    if isinstance(value, int):
+        return str(value)
+    return f'"{_escape_toml(str(value))}"'
 
 
 def _write_template_file(path: Path, content: str, force: bool) -> AppTemplateFile:
