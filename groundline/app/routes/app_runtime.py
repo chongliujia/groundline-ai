@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from groundline.core.app_recipe import (
+    app_document_registry,
     app_status,
     latest_app_artifact,
     load_app_recipe,
@@ -14,6 +15,7 @@ from groundline.core.config import get_settings
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
     AppArtifact,
+    AppDocumentRegistryReport,
     AppPlanReport,
     AppRecipe,
     AppRunReport,
@@ -46,6 +48,14 @@ def validate_app(recipe: AppRecipe | None = None) -> AppValidationReport:
     recipe = recipe or load_app_recipe()
     engine = Groundline(settings)
     return validate_app_recipe(engine=engine, recipe=recipe, data_dir=settings.data_dir)
+
+
+@router.post("/docs", response_model=AppDocumentRegistryReport)
+def app_docs(recipe: AppRecipe | None = None) -> AppDocumentRegistryReport:
+    settings = get_settings()
+    recipe = recipe or load_app_recipe()
+    engine = Groundline(settings)
+    return app_document_registry(engine=engine, recipe=recipe)
 
 
 @router.get("/status", response_model=AppStatusReport)

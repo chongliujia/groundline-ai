@@ -11,6 +11,7 @@ from rich.table import Table
 
 from groundline.core.app_recipe import (
     DEFAULT_RECIPE_PATH,
+    app_document_registry,
     app_status,
     default_app_recipe,
     export_latest_artifact,
@@ -25,6 +26,7 @@ from groundline.core.config import Settings
 from groundline.core.demo import run_demo_flow
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppDocumentRegistryReport,
     AppInitReport,
     AppPlanReport,
     AppRunReport,
@@ -266,6 +268,29 @@ def app_validate(
         _print_app_validation(report)
     if not report.ok:
         raise typer.Exit(1)
+
+
+@app_commands.command("docs")
+def app_docs(
+    recipe_path: Annotated[
+        Path,
+        typer.Option("--recipe", help="App recipe TOML path."),
+    ] = DEFAULT_RECIPE_PATH,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    data_dir: Annotated[Path, typer.Option(help="Local Groundline data dir.")] = Path(
+        ".groundline"
+    ),
+) -> None:
+    recipe = load_app_recipe(recipe_path)
+    engine = Groundline(Settings(data_dir=data_dir))
+    report = app_document_registry(engine=engine, recipe=recipe)
+    if json_output:
+        _print_json_model(report)
+        return
+    _print_app_docs(report)
 
 
 @app_commands.command("status")
@@ -941,6 +966,33 @@ def _print_app_validation(report: AppValidationReport) -> None:
             issue.code,
             issue.message,
             issue.path or "",
+        )
+    console.print(table)
+
+
+def _print_app_docs(report: AppDocumentRegistryReport) -> None:
+    console.rule("[bold]Groundline App Docs[/bold]")
+    console.print(f"Collection: {report.collection}")
+    console.print(f"Docs path: {report.docs_path}")
+    console.print(
+        f"Sources: {report.sources_total}; indexed: {report.indexed_total}; "
+        f"changed: {report.changed_total}; missing: {report.missing_total}"
+    )
+    table = Table(title="Document Registry")
+    table.add_column("Status")
+    table.add_column("Source")
+    table.add_column("Doc ID")
+    table.add_column("Version")
+    table.add_column("Hash")
+    table.add_column("Reason")
+    for item in report.items:
+        table.add_row(
+            item.status,
+            item.source_uri,
+            item.doc_id or "",
+            item.version_id or "",
+            (item.content_hash or item.indexed_hash or "")[:12],
+            item.reason or "",
         )
     console.print(table)
 

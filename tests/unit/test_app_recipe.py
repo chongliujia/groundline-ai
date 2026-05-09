@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from groundline.core.app_recipe import (
+    app_document_registry,
     app_status,
     default_app_recipe,
     export_latest_artifact,
@@ -168,3 +169,30 @@ def test_init_app_project_creates_runnable_template(tmp_path: Path, monkeypatch)
 
     skipped = init_app_project(project_dir)
     assert not any(file.created for file in skipped.files)
+
+
+def test_app_document_registry_tracks_source_state(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "registry-app"
+    init_app_project(project_dir)
+    monkeypatch.chdir(project_dir)
+    recipe = load_app_recipe()
+    engine = Groundline.from_local(Path(".groundline"))
+
+    before = app_document_registry(engine=engine, recipe=recipe)
+    assert [item.status for item in before.items] == ["new"]
+
+    run_app_recipe(engine=engine, recipe=recipe, data_dir=Path(".groundline"))
+    after = app_document_registry(engine=engine, recipe=recipe)
+    assert [item.status for item in after.items] == ["unchanged"]
+    assert after.items[0].doc_id is not None
+    assert after.items[0].indexed_hash == after.items[0].content_hash
+
+    policy = Path("docs/policy.md")
+    policy.write_text(policy.read_text() + "\nNew reimbursement rule.\n")
+    changed = app_document_registry(engine=engine, recipe=recipe)
+    assert [item.status for item in changed.items] == ["changed"]
+
+    policy.unlink()
+    missing = app_document_registry(engine=engine, recipe=recipe)
+    assert [item.status for item in missing.items] == ["missing"]
+    assert missing.missing_total == 1

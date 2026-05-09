@@ -550,6 +550,31 @@ class AppRunManifest(GroundlineModel):
     run_ids: list[str] = Field(default_factory=list)
 
 
+class AppDocumentRegistryItem(GroundlineModel):
+    source_uri: str
+    source_type: str | None = None
+    content_hash: str | None = None
+    bytes: int | None = None
+    doc_id: str | None = None
+    version_id: str | None = None
+    indexed_hash: str | None = None
+    indexed: bool = False
+    active: bool = False
+    status: Literal["new", "unchanged", "changed", "missing"]
+    reason: str | None = None
+
+
+class AppDocumentRegistryReport(GroundlineModel):
+    recipe: AppRecipe
+    collection: str
+    docs_path: str
+    sources_total: int
+    indexed_total: int
+    changed_total: int
+    missing_total: int
+    items: list[AppDocumentRegistryItem] = Field(default_factory=list)
+
+
 class AppExecutionReport(GroundlineModel):
     collection: str
     data_dir: str

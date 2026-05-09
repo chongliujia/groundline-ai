@@ -11,6 +11,8 @@ from groundline.core.engine import Groundline
 from groundline.core.hashing import hash_file, hash_text
 from groundline.core.schemas import (
     AppArtifact,
+    AppDocumentRegistryItem,
+    AppDocumentRegistryReport,
     AppExecutionReport,
     AppInitReport,
     AppPlanReport,
@@ -24,6 +26,8 @@ from groundline.core.schemas import (
     AppValidationIssue,
     AppValidationReport,
     DemoStepReport,
+    Document,
+    DocumentVersion,
 )
 from groundline.evals.runner import run_eval
 from groundline.ingestion.loader import infer_source_type, iter_local_documents
@@ -108,6 +112,74 @@ def validate_app_recipe(
         ok=not any(issue.severity == "error" for issue in issues),
         issues=issues,
         plan=plan,
+    )
+
+
+def app_document_registry(
+    engine: Groundline,
+    recipe: AppRecipe,
+) -> AppDocumentRegistryReport:
+    source_by_uri = {
+        source.path: source
+        for source in _source_snapshots(Path(recipe.docs_path))
+    }
+    documents = engine.list_documents(recipe.collection, include_inactive=True)
+    document_by_uri = {document.source_uri: document for document in documents}
+    items: list[AppDocumentRegistryItem] = []
+
+    for source_uri, source in sorted(source_by_uri.items()):
+        document = document_by_uri.get(source_uri)
+        version = _current_version(engine, recipe.collection, document)
+        indexed_hash = version.content_hash if version else None
+        indexed = document is not None and document.is_active
+        status = (
+            "unchanged"
+            if indexed and indexed_hash == source.content_hash
+            else "changed" if indexed else "new"
+        )
+        items.append(
+            AppDocumentRegistryItem(
+                source_uri=source_uri,
+                source_type=source.source_type,
+                content_hash=source.content_hash,
+                bytes=source.bytes,
+                doc_id=document.doc_id if document else None,
+                version_id=document.current_version_id if document else None,
+                indexed_hash=indexed_hash,
+                indexed=indexed,
+                active=document.is_active if document else False,
+                status=status,
+                reason=_registry_reason(status),
+            )
+        )
+
+    for source_uri, document in sorted(document_by_uri.items()):
+        if source_uri in source_by_uri:
+            continue
+        version = _current_version(engine, recipe.collection, document)
+        items.append(
+            AppDocumentRegistryItem(
+                source_uri=source_uri,
+                source_type=document.source_type,
+                doc_id=document.doc_id,
+                version_id=document.current_version_id,
+                indexed_hash=version.content_hash if version else None,
+                indexed=True,
+                active=document.is_active,
+                status="missing",
+                reason="indexed document source is no longer present under docs_path",
+            )
+        )
+
+    return AppDocumentRegistryReport(
+        recipe=recipe,
+        collection=recipe.collection,
+        docs_path=recipe.docs_path,
+        sources_total=len(source_by_uri),
+        indexed_total=len([item for item in items if item.indexed]),
+        changed_total=len([item for item in items if item.status == "changed"]),
+        missing_total=len([item for item in items if item.status == "missing"]),
+        items=items,
     )
 
 
@@ -500,6 +572,37 @@ def _source_snapshots(path: Path) -> list[AppSourceSnapshot]:
         for source in iter_local_documents(path)
         if source.suffix.lower() != ".pdf"
     ]
+
+
+def _registry_reason(status: str) -> str:
+    if status == "new":
+        return "source has not been ingested yet"
+    if status == "changed":
+        return "source hash differs from indexed version"
+    if status == "missing":
+        return "indexed document source is no longer present under docs_path"
+    return "source hash matches indexed version"
+
+
+def _current_version(
+    engine: Groundline,
+    collection: str,
+    document: Document | None,
+) -> DocumentVersion | None:
+    if document is None or not document.current_version_id:
+        return None
+    return next(
+        (
+            version
+            for version in engine.list_document_versions(
+                collection,
+                document.doc_id,
+                include_inactive=True,
+            )
+            if version.version_id == document.current_version_id
+        ),
+        None,
+    )
 
 
 def _recipe_toml(recipe: AppRecipe) -> str:

@@ -55,6 +55,7 @@ For a reusable app-style workflow, initialize and run an app recipe:
 groundline app init
 groundline app validate
 groundline app plan
+groundline app docs
 groundline app run --json
 groundline app status
 groundline app export .groundline/artifacts/demo-report.json
@@ -77,6 +78,8 @@ side-effect-free checks for developer demos and CI.
 
 Each app run writes a manifest into its artifact with the recipe hash, input
 document hashes, provider status, executed steps, and pipeline run ids.
+Use `groundline app docs` to compare local source files with indexed document
+versions and detect new, changed, or missing sources before running ingest.
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.
@@ -178,6 +181,7 @@ GET    /health
 POST   /demo
 POST   /app/plan
 POST   /app/validate
+POST   /app/docs
 POST   /app/run
 GET    /app/status
 GET    /app/artifacts/latest

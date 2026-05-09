@@ -2,6 +2,8 @@
 
 from groundline.core.engine import Groundline
 from groundline.core.schemas import (
+    AppDocumentRegistryItem,
+    AppDocumentRegistryReport,
     AppExecutionReport,
     AppInitReport,
     AppPlanReport,
@@ -28,6 +30,8 @@ from groundline.core.schemas import (
 
 __all__ = [
     "AppExecutionReport",
+    "AppDocumentRegistryItem",
+    "AppDocumentRegistryReport",
     "AppInitReport",
     "AppPlanReport",
     "AppPlanStep",

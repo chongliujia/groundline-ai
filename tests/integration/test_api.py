@@ -251,6 +251,11 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert app_run.json()["run"]["manifest"]["recipe_hash"]
     assert app_run.json()["run"]["manifest"]["sources"]
 
+    app_docs = client.post("/app/docs", json=app_recipe)
+    assert app_docs.status_code == 200
+    assert app_docs.json()["items"][0]["status"] == "unchanged"
+    assert app_docs.json()["items"][0]["doc_id"]
+
     app_status = client.get("/app/status")
     assert app_status.status_code == 200
     assert "recipe" in app_status.json()
