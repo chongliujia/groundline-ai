@@ -223,6 +223,28 @@ def test_app_profile_overrides_recipe_and_runtime(tmp_path: Path) -> None:
     assert plan.runtime.profile == "dev"
 
 
+def test_developer_support_example_is_runnable(tmp_path: Path, monkeypatch) -> None:
+    example_dir = Path(__file__).parents[2] / "examples" / "developer-support"
+    monkeypatch.chdir(example_dir)
+    recipe = load_app_recipe(Path("groundline.app.toml")).model_copy(
+        update={
+            "collection": "developer_support_test",
+            "artifacts_dir": str(tmp_path / "artifacts"),
+        }
+    )
+    data_dir = tmp_path / "data"
+    engine = Groundline.from_local(data_dir)
+
+    validation = validate_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+    report = run_app_recipe(engine=engine, recipe=recipe, data_dir=data_dir)
+
+    assert validation.ok is True
+    assert report.run.ingest.documents
+    assert report.run.eval is not None
+    assert report.run.eval.metrics.recall_at_k >= 0.5
+    assert Path(report.artifacts[0].path).exists()
+
+
 def test_compare_app_runs_reports_manifest_and_source_differences(tmp_path: Path) -> None:
     project_dir = tmp_path / "compare-app"
     init_app_project(project_dir)

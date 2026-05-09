@@ -89,6 +89,16 @@ Use profiles in `groundline.app.toml`, such as `[profiles.dev]`, to override
 collection, data dir, artifacts, Qdrant URL, or provider config per environment.
 Use `groundline app compare` to diff two run artifacts for recipe, document,
 provider, step, and eval metric changes.
+See `docs/app-artifacts.md` for the artifact contract used by compare, CI,
+future Web UI views, and regression reports.
+
+For a more engineering-style reusable app example:
+
+```bash
+cd examples/developer-support
+groundline app validate
+groundline app run
+```
 
 The example evalset uses `gold_source_uris`, so it stays stable across runs even
 though Groundline generates fresh document ids on ingest.

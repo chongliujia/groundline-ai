@@ -1,0 +1,4 @@
+{"query":"How should a developer rotate a leaked API key?","gold_source_uris":["docs/api-auth.md"],"query_type":"security"}
+{"query":"What should support check before escalating a webhook delivery issue?","gold_source_uris":["docs/webhooks.md"],"query_type":"operations"}
+{"query":"Which release introduced request id tracing for failed API calls?","gold_source_uris":["docs/release-notes.md"],"query_type":"release"}
+
