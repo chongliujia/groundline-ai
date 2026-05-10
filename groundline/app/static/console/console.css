@@ -56,6 +56,12 @@ button.ghost:hover {
   background: var(--surface-2);
 }
 
+button.compact {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 input {
   width: 100%;
   min-height: 36px;
@@ -562,7 +568,7 @@ td code {
   }
 
   .nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding: 8px;
   }
 

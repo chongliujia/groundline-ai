@@ -25,11 +25,14 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert ui.status_code == 200
     assert "Groundline Console" in ui.text
     assert "inspector" in ui.text
+    assert "view-settings" in ui.text
 
     ui_asset = client.get("/ui/assets/console.js")
     assert ui_asset.status_code == 200
     assert "loadDashboard" in ui_asset.text
     assert "openInspector" in ui_asset.text
+    assert "loadRunHistory" in ui_asset.text
+    assert "loadSettings" in ui_asset.text
 
     providers = client.get("/providers")
     assert providers.status_code == 200

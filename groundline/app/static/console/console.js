@@ -3,8 +3,10 @@ const state = {
   providers: null,
   lastCompare: null,
   lastRun: null,
+  lastRunHistory: [],
   lastValidation: null,
   lastSearch: null,
+  plan: null,
 };
 
 const titles = {
@@ -14,6 +16,7 @@ const titles = {
   runs: "Runs",
   compare: "Compare",
   providers: "Providers",
+  settings: "Settings",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -143,6 +146,12 @@ function renderStatus(status) {
     .join("");
 }
 
+function definitionList(fields) {
+  return fields
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value ?? "-")}</dd>`)
+    .join("");
+}
+
 function renderProviders(report) {
   return table(
     [
@@ -252,6 +261,7 @@ async function runApp() {
   $("#run-output").innerHTML = renderRun(report);
   openInspector("Run Report", renderRunDetail(report));
   await loadDashboard();
+  await loadRunHistory();
 }
 
 function renderValidation(report) {
@@ -317,6 +327,40 @@ function renderRunDetail(report) {
     <div class="section-title">Manifest</div>
     ${jsonBlock(report.run?.manifest || {})}
   `;
+}
+
+async function loadRunHistory() {
+  if (!state.status) {
+    await loadDashboard();
+  }
+  const collection = collectionName();
+  const runs = await api(`/collections/${encodeURIComponent(collection)}/pipeline-runs?limit=30`);
+  state.lastRunHistory = runs;
+  $("#run-history").innerHTML = renderRunHistory(runs);
+}
+
+function renderRunHistory(runs) {
+  return table(
+    [
+      { key: "operation", label: "Operation", render: (row) => pill(row.operation) },
+      { key: "status", label: "Status", render: (row) => pill(row.status) },
+      { key: "events", label: "Events", render: (row) => escapeHtml((row.events || []).length) },
+      { key: "started_at", label: "Started" },
+      { key: "finished_at", label: "Finished", render: (row) => escapeHtml(row.finished_at || "") },
+      {
+        key: "run_id",
+        label: "Run ID",
+        render: (row) => `
+          <button class="ghost compact" data-action="show-history-run" data-run-id="${escapeHtml(row.run_id)}">
+            Inspect
+          </button>
+          <code>${short(row.run_id, 18)}</code>
+        `,
+      },
+    ],
+    runs || [],
+    "No pipeline runs for this collection.",
+  );
 }
 
 async function runCompare() {
@@ -407,6 +451,64 @@ async function loadProviders() {
   $("#providers-table").innerHTML = renderProviders(providers);
 }
 
+async function loadSettings() {
+  const [plan, providers] = await Promise.all([
+    api("/app/plan", { method: "POST", body: JSON.stringify({}) }),
+    api("/app/providers"),
+  ]);
+  state.plan = plan;
+  state.status = {
+    ...(state.status || {}),
+    recipe: plan.recipe,
+  };
+  state.providers = providers;
+  $("#runtime-collection").textContent = plan.recipe?.collection || "-";
+  $("#settings-runtime").innerHTML = definitionList([
+    ["Profile", plan.runtime?.profile],
+    ["Collection", plan.recipe?.collection],
+    ["Data dir", plan.runtime?.data_dir],
+    ["Provider config", plan.runtime?.provider_config_path],
+    ["Qdrant URL", plan.runtime?.qdrant_url],
+    ["SQLite path", plan.runtime?.sqlite_path || "-"],
+    ["Collection exists", plan.collection_exists ? "yes" : "no"],
+    ["Latest artifact", plan.latest_artifact?.path || "None"],
+  ]);
+  $("#settings-recipe").innerHTML = definitionList([
+    ["Name", plan.recipe?.name],
+    ["Docs path", plan.recipe?.docs_path],
+    ["Evalset", plan.recipe?.evalset],
+    ["Query", plan.recipe?.query_text],
+    ["Top K", plan.recipe?.top_k],
+    ["Context window", plan.recipe?.context_window],
+    ["Run eval", plan.recipe?.run_eval ? "enabled" : "disabled"],
+    ["Run reindex", plan.recipe?.run_reindex ? "enabled" : "disabled"],
+  ]);
+  $("#settings-profiles").innerHTML = renderProfiles(plan.recipe?.profiles || {});
+}
+
+function renderProfiles(profiles) {
+  const rows = Object.entries(profiles).map(([name, profile]) => ({
+    name,
+    collection: profile.collection || "",
+    data_dir: profile.data_dir || "",
+    artifacts_dir: profile.artifacts_dir || "",
+    provider_config_path: profile.provider_config_path || "",
+    qdrant_url: profile.qdrant_url || "",
+  }));
+  return table(
+    [
+      { key: "name", label: "Profile", render: (row) => pill(row.name) },
+      { key: "collection", label: "Collection" },
+      { key: "data_dir", label: "Data Dir" },
+      { key: "artifacts_dir", label: "Artifacts" },
+      { key: "provider_config_path", label: "Provider Config" },
+      { key: "qdrant_url", label: "Qdrant" },
+    ],
+    rows,
+    "No profiles configured.",
+  );
+}
+
 function switchView(view) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.view === view);
@@ -432,6 +534,8 @@ document.addEventListener("click", (event) => {
     switchView(nav.dataset.view);
     if (nav.dataset.view === "documents") guarded(loadDocuments);
     if (nav.dataset.view === "providers") guarded(loadProviders);
+    if (nav.dataset.view === "runs") guarded(loadRunHistory);
+    if (nav.dataset.view === "settings") guarded(loadSettings);
     return;
   }
   const action = event.target.closest("[data-action]")?.dataset.action;
@@ -444,6 +548,12 @@ document.addEventListener("click", (event) => {
   }
   if (action === "validate-app") guarded(validateApp);
   if (action === "run-app") guarded(runApp);
+  if (action === "load-run-history") guarded(loadRunHistory);
+  if (action === "show-history-run") {
+    const run = state.lastRunHistory.find((item) => item.run_id === event.target.dataset.runId);
+    if (run) openInspector("Pipeline Run", jsonBlock(run));
+    else setNotice("Run history entry is no longer loaded.");
+  }
   if (action === "show-run-detail") {
     if (state.lastRun) openInspector("Run Report", renderRunDetail(state.lastRun));
     else if (state.lastValidation) openInspector("Validation Report", jsonBlock(state.lastValidation));
@@ -455,6 +565,11 @@ document.addEventListener("click", (event) => {
     else setNotice("Run a compare before opening the report.");
   }
   if (action === "load-providers") guarded(loadProviders);
+  if (action === "load-settings") guarded(loadSettings);
+  if (action === "show-recipe-json") {
+    if (state.plan?.recipe) openInspector("Recipe JSON", jsonBlock(state.plan.recipe));
+    else setNotice("Load settings before opening recipe JSON.");
+  }
   if (action === "show-provider-detail") {
     if (state.providers) openInspector("Provider Readiness", jsonBlock(state.providers));
     else setNotice("Load providers before opening details.");

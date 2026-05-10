@@ -23,6 +23,7 @@
           <button class="nav-item" data-view="runs">Runs</button>
           <button class="nav-item" data-view="compare">Compare</button>
           <button class="nav-item" data-view="providers">Providers</button>
+          <button class="nav-item" data-view="settings">Settings</button>
         </nav>
         <div class="sidebar-footer">
           <span class="status-dot" id="api-dot"></span>
@@ -145,6 +146,13 @@
             </div>
             <div id="run-output" class="table-host"></div>
           </section>
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Run History</h2>
+              <button class="ghost" data-action="load-run-history">Refresh</button>
+            </div>
+            <div id="run-history" class="table-host"></div>
+          </section>
         </section>
 
         <section class="view" id="view-compare">
@@ -180,6 +188,31 @@
               </div>
             </div>
             <div id="providers-table" class="table-host"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="two-column">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Runtime</h2>
+                <button class="ghost" data-action="load-settings">Refresh</button>
+              </div>
+              <dl class="definition-list" id="settings-runtime"></dl>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Recipe</h2>
+                <button class="ghost" data-action="show-recipe-json">Recipe JSON</button>
+              </div>
+              <dl class="definition-list" id="settings-recipe"></dl>
+            </section>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Profiles</h2>
+            </div>
+            <div id="settings-profiles" class="table-host"></div>
           </section>
         </section>
       </main>
