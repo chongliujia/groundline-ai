@@ -46,6 +46,15 @@ button:hover {
   background: var(--accent-strong);
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+button.loading {
+  position: relative;
+}
+
 button.ghost {
   border-color: var(--line-strong);
   background: var(--surface);
@@ -243,6 +252,48 @@ h2 {
   color: #744200;
   padding: 10px 12px;
   font-size: 13px;
+}
+
+.notice[data-tone="error"] {
+  border-color: #f1aaa4;
+  background: #fff2f0;
+  color: var(--bad);
+}
+
+.notice[data-tone="success"] {
+  border-color: #a7d7ba;
+  background: #eefaf3;
+  color: var(--ok);
+}
+
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 7px 11px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .view {
@@ -444,6 +495,15 @@ td code {
 }
 
 .empty {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.loading-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 16px;
   color: var(--muted);
   font-size: 13px;

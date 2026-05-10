@@ -1,6 +1,7 @@
 const state = {
   status: null,
   providers: null,
+  busyCount: 0,
   lastDocuments: [],
   lastCompare: null,
   lastRun: null,
@@ -39,6 +40,36 @@ function setNotice(message, tone = "warning") {
   notice.textContent = message;
   notice.hidden = !message;
   notice.dataset.tone = tone;
+}
+
+function setActivity(message, active) {
+  const activity = $("#activity");
+  state.busyCount = Math.max(0, state.busyCount + (active ? 1 : -1));
+  if (active) {
+    $("#activity-text").textContent = message || "Working";
+  }
+  activity.hidden = state.busyCount === 0;
+}
+
+function setButtonPending(button, pending) {
+  if (!button) return;
+  if (pending) {
+    button.dataset.originalLabel = button.textContent.trim();
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.classList.add("loading");
+    if (!button.classList.contains("nav-item")) {
+      button.textContent = "Working";
+    }
+    return;
+  }
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+  button.classList.remove("loading");
+  if (button.dataset.originalLabel) {
+    button.textContent = button.dataset.originalLabel;
+    delete button.dataset.originalLabel;
+  }
 }
 
 function escapeHtml(value) {
@@ -85,6 +116,10 @@ function jsonBlock(value) {
   return `<pre class="json-block">${prettyJson(value)}</pre>`;
 }
 
+function loadingBlock(message) {
+  return `<div class="loading-block"><span class="spinner" aria-hidden="true"></span>${escapeHtml(message)}</div>`;
+}
+
 function openInspector(title, body) {
   $("#inspector-title").textContent = title;
   $("#inspector-body").innerHTML = body;
@@ -115,6 +150,10 @@ async function loadHealth() {
 
 async function loadDashboard() {
   setNotice("");
+  $("#dashboard-providers").innerHTML = loadingBlock("Loading provider readiness");
+  $("#dashboard-status").innerHTML = definitionList([["Status", "Loading runtime status"]]);
+  $("#kpi-app").textContent = "Loading";
+  $("#kpi-providers").textContent = "Loading";
   const [status, providers] = await Promise.all([
     api("/app/status"),
     api("/app/providers"),
@@ -172,6 +211,7 @@ function renderProviders(report) {
 }
 
 async function loadDocuments() {
+  $("#documents-table").innerHTML = loadingBlock("Loading document registry");
   const docs = await api("/app/docs", { method: "POST", body: JSON.stringify({}) });
   state.lastDocuments = docs.items || [];
   $("#documents-table").innerHTML = table(
@@ -204,6 +244,7 @@ async function showDocumentDetail(index) {
     return;
   }
   let versions = [];
+  openInspector("Document Detail", loadingBlock("Loading document versions"));
   if (item.doc_id) {
     const response = await api(
       `/collections/${encodeURIComponent(collectionName())}/documents/${encodeURIComponent(item.doc_id)}/versions?include_inactive=true`,
@@ -254,9 +295,11 @@ async function runSearch() {
   const topK = Number($("#search-top-k").value || 6);
   const includeTrace = $("#search-trace").checked;
   if (!query) {
-    setNotice("Query is required.");
+    setNotice("Query is required.", "error");
     return;
   }
+  $("#search-summary").textContent = "Running query";
+  $("#search-results").innerHTML = loadingBlock("Retrieving contexts");
   const result = await api(`/collections/${encodeURIComponent(collection)}/query`, {
     method: "POST",
     body: JSON.stringify({
@@ -311,6 +354,7 @@ function renderTrace(result) {
 }
 
 async function validateApp() {
+  $("#run-output").innerHTML = loadingBlock("Validating app recipe");
   const report = await api("/app/validate", { method: "POST", body: JSON.stringify({}) });
   state.lastValidation = report;
   $("#run-output").innerHTML = renderValidation(report);
@@ -318,6 +362,7 @@ async function validateApp() {
 }
 
 async function runApp() {
+  $("#run-output").innerHTML = loadingBlock("Running app workflow");
   const report = await api("/app/run", { method: "POST", body: JSON.stringify({}) });
   state.lastRun = report;
   $("#run-output").innerHTML = renderRun(report);
@@ -395,6 +440,7 @@ async function loadRunHistory() {
   if (!state.status) {
     await loadDashboard();
   }
+  $("#run-history").innerHTML = loadingBlock("Loading pipeline runs");
   const collection = collectionName();
   const runs = await api(`/collections/${encodeURIComponent(collection)}/pipeline-runs?limit=30`);
   state.lastRunHistory = runs;
@@ -429,9 +475,10 @@ async function runCompare() {
   const base = $("#compare-base").value.trim();
   const target = $("#compare-target").value.trim();
   if (!base || !target) {
-    setNotice("Both artifact paths are required.");
+    setNotice("Both artifact paths are required.", "error");
     return;
   }
+  $("#compare-output").innerHTML = loadingBlock("Comparing artifacts");
   const report = await api("/app/compare", {
     method: "POST",
     body: JSON.stringify({ base_path: base, target_path: target }),
@@ -508,12 +555,16 @@ function renderCompareDetail(report) {
 }
 
 async function loadProviders() {
+  $("#providers-table").innerHTML = loadingBlock("Loading provider readiness");
   const providers = await api("/app/providers");
   state.providers = providers;
   $("#providers-table").innerHTML = renderProviders(providers);
 }
 
 async function loadSettings() {
+  $("#settings-runtime").innerHTML = definitionList([["Status", "Loading runtime"]]);
+  $("#settings-recipe").innerHTML = definitionList([["Status", "Loading recipe"]]);
+  $("#settings-profiles").innerHTML = loadingBlock("Loading profiles");
   const [plan, providers] = await Promise.all([
     api("/app/plan", { method: "POST", body: JSON.stringify({}) }),
     api("/app/providers"),
@@ -581,12 +632,24 @@ function switchView(view) {
   $("#page-title").textContent = titles[view] || "Console";
 }
 
-async function guarded(action) {
+async function guarded(action, button, label = "Working") {
   try {
     setNotice("");
+    setActivity(label, true);
+    setButtonPending(button, true);
     await action();
   } catch (error) {
-    setNotice(error.message);
+    setNotice(error.message, "error");
+    openInspector(
+      "Error Detail",
+      jsonBlock({
+        message: error.message,
+        time: new Date().toISOString(),
+      }),
+    );
+  } finally {
+    setButtonPending(button, false);
+    setActivity(label, false);
   }
 }
 
@@ -594,26 +657,31 @@ document.addEventListener("click", (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) {
     switchView(nav.dataset.view);
-    if (nav.dataset.view === "documents") guarded(loadDocuments);
-    if (nav.dataset.view === "providers") guarded(loadProviders);
-    if (nav.dataset.view === "runs") guarded(loadRunHistory);
-    if (nav.dataset.view === "settings") guarded(loadSettings);
+    if (nav.dataset.view === "documents") guarded(loadDocuments, nav, "Loading documents");
+    if (nav.dataset.view === "providers") guarded(loadProviders, nav, "Loading providers");
+    if (nav.dataset.view === "runs") guarded(loadRunHistory, nav, "Loading runs");
+    if (nav.dataset.view === "settings") guarded(loadSettings, nav, "Loading settings");
     return;
   }
   const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action === "refresh-dashboard") guarded(loadDashboard);
-  if (action === "load-docs") guarded(loadDocuments);
+  const trigger = event.target.closest("button");
+  if (action === "refresh-dashboard") guarded(loadDashboard, trigger, "Refreshing dashboard");
+  if (action === "load-docs") guarded(loadDocuments, trigger, "Loading documents");
   if (action === "show-document-detail") {
-    guarded(() => showDocumentDetail(event.target.dataset.docIndex));
+    guarded(
+      () => showDocumentDetail(event.target.dataset.docIndex),
+      trigger,
+      "Loading document detail",
+    );
   }
-  if (action === "run-search") guarded(runSearch);
+  if (action === "run-search") guarded(runSearch, trigger, "Running search");
   if (action === "show-search-trace") {
     if (state.lastSearch?.trace) openInspector("Search Trace", renderTrace(state.lastSearch));
     else setNotice("Run a traced search before opening trace details.");
   }
-  if (action === "validate-app") guarded(validateApp);
-  if (action === "run-app") guarded(runApp);
-  if (action === "load-run-history") guarded(loadRunHistory);
+  if (action === "validate-app") guarded(validateApp, trigger, "Validating app");
+  if (action === "run-app") guarded(runApp, trigger, "Running app");
+  if (action === "load-run-history") guarded(loadRunHistory, trigger, "Loading run history");
   if (action === "show-history-run") {
     const run = state.lastRunHistory.find((item) => item.run_id === event.target.dataset.runId);
     if (run) openInspector("Pipeline Run", jsonBlock(run));
@@ -624,13 +692,13 @@ document.addEventListener("click", (event) => {
     else if (state.lastValidation) openInspector("Validation Report", jsonBlock(state.lastValidation));
     else setNotice("Run or validate the app before opening details.");
   }
-  if (action === "run-compare") guarded(runCompare);
+  if (action === "run-compare") guarded(runCompare, trigger, "Comparing artifacts");
   if (action === "show-compare-report") {
     if (state.lastCompare) openInspector("Compare Report", renderCompareDetail(state.lastCompare));
     else setNotice("Run a compare before opening the report.");
   }
-  if (action === "load-providers") guarded(loadProviders);
-  if (action === "load-settings") guarded(loadSettings);
+  if (action === "load-providers") guarded(loadProviders, trigger, "Loading providers");
+  if (action === "load-settings") guarded(loadSettings, trigger, "Loading settings");
   if (action === "show-recipe-json") {
     if (state.plan?.recipe) openInspector("Recipe JSON", jsonBlock(state.plan.recipe));
     else setNotice("Load settings before opening recipe JSON.");
@@ -646,5 +714,5 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeInspector();
 });
 
-guarded(loadHealth);
-guarded(loadDashboard);
+guarded(loadHealth, null, "Checking API");
+guarded(loadDashboard, null, "Loading dashboard");
