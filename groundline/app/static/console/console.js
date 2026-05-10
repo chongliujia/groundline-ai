@@ -1,6 +1,10 @@
 const state = {
   status: null,
   providers: null,
+  lastCompare: null,
+  lastRun: null,
+  lastValidation: null,
+  lastSearch: null,
 };
 
 const titles = {
@@ -69,6 +73,26 @@ function short(value, length = 12) {
   return String(value).slice(0, length);
 }
 
+function prettyJson(value) {
+  return escapeHtml(JSON.stringify(value ?? {}, null, 2));
+}
+
+function jsonBlock(value) {
+  return `<pre class="json-block">${prettyJson(value)}</pre>`;
+}
+
+function openInspector(title, body) {
+  $("#inspector-title").textContent = title;
+  $("#inspector-body").innerHTML = body;
+  $("#inspector").classList.add("open");
+  $("#inspector").setAttribute("aria-hidden", "false");
+}
+
+function closeInspector() {
+  $("#inspector").classList.remove("open");
+  $("#inspector").setAttribute("aria-hidden", "true");
+}
+
 function collectionName() {
   return state.status?.recipe?.collection || $("#search-collection").value || "demo";
 }
@@ -130,7 +154,7 @@ function renderProviders(report) {
       {
         key: "checks",
         label: "Checks",
-        render: (row) => escapeHtml((row.checks || []).map((check) => check.code).join(", ")),
+        render: (row) => (row.checks || []).map((check) => pill(check.code)).join(" "),
       },
     ],
     report.providers || [],
@@ -171,8 +195,12 @@ async function runSearch() {
       include_trace: includeTrace,
     }),
   });
+  state.lastSearch = result;
   $("#search-summary").textContent = `${result.contexts.length} contexts`;
   $("#search-results").innerHTML = renderContexts(result.contexts || []);
+  if (result.trace) {
+    openInspector("Search Trace", renderTrace(result));
+  }
 }
 
 function renderContexts(contexts) {
@@ -180,29 +208,49 @@ function renderContexts(contexts) {
   return contexts
     .map((context, index) => {
       const source = context.source_uri || context.metadata?.source_uri || context.doc_id || "-";
-      const score = context.score == null ? "-" : Number(context.score).toFixed(4);
+      const score = context.scores?.final ?? context.scores?.rrf ?? context.scores?.bm25 ?? null;
+      const scoreText = score == null ? "-" : Number(score).toFixed(4);
       return `
         <article class="context-item">
           <div class="context-meta">
             ${pill(`#${index + 1}`)}
-            ${pill(`score ${score}`)}
+            ${pill(`score ${scoreText}`)}
             ${pill(source)}
           </div>
-          <div class="context-text">${escapeHtml(context.text || "")}</div>
+          <div class="context-text">${escapeHtml(context.content_markdown || "")}</div>
         </article>
       `;
     })
     .join("");
 }
 
+function renderTrace(result) {
+  const trace = result.trace || {};
+  const retrieval = trace.retrieval || {};
+  const fusion = trace.fusion || {};
+  const context = trace.context || {};
+  return `
+    <div class="trace-grid">
+      <div class="summary-cell"><span>BM25 hits</span><strong>${escapeHtml(retrieval.bm25_hits ?? "-")}</strong></div>
+      <div class="summary-cell"><span>Fusion candidates</span><strong>${escapeHtml((fusion.candidates || []).length)}</strong></div>
+      <div class="summary-cell"><span>Final contexts</span><strong>${escapeHtml(context.final_items ?? result.contexts.length)}</strong></div>
+    </div>
+    ${jsonBlock(trace)}
+  `;
+}
+
 async function validateApp() {
   const report = await api("/app/validate", { method: "POST", body: JSON.stringify({}) });
+  state.lastValidation = report;
   $("#run-output").innerHTML = renderValidation(report);
+  openInspector("Validation Report", jsonBlock(report));
 }
 
 async function runApp() {
   const report = await api("/app/run", { method: "POST", body: JSON.stringify({}) });
+  state.lastRun = report;
   $("#run-output").innerHTML = renderRun(report);
+  openInspector("Run Report", renderRunDetail(report));
   await loadDashboard();
 }
 
@@ -221,7 +269,16 @@ function renderValidation(report) {
 
 function renderRun(report) {
   const steps = report.run?.steps || [];
-  return table(
+  const artifacts = report.artifacts || [];
+  const evalMetrics = report.run?.eval?.metrics;
+  const summary = `
+    <div class="summary-strip">
+      <div class="summary-cell"><span>Collection</span><strong>${escapeHtml(report.run?.collection || "-")}</strong></div>
+      <div class="summary-cell"><span>Artifacts</span><strong>${escapeHtml(artifacts.length)}</strong></div>
+      <div class="summary-cell"><span>Recall@K</span><strong>${escapeHtml(evalMetrics?.recall_at_k ?? "-")}</strong></div>
+    </div>
+  `;
+  return summary + table(
     [
       { key: "name", label: "Step" },
       { key: "ok", label: "OK", render: (row) => pill(row.ok ? "ok" : "bad") },
@@ -231,6 +288,35 @@ function renderRun(report) {
     ],
     steps,
   );
+}
+
+function renderRunDetail(report) {
+  const artifacts = report.artifacts || [];
+  const metrics = report.run?.eval?.metrics || {};
+  const artifactTable = table(
+    [
+      { key: "kind", label: "Kind" },
+      { key: "path", label: "Path", render: (row) => `<code>${escapeHtml(row.path)}</code>` },
+    ],
+    artifacts,
+    "No artifacts written.",
+  );
+  const metricTable = table(
+    [
+      { key: "name", label: "Metric" },
+      { key: "value", label: "Value" },
+    ],
+    Object.entries(metrics).map(([name, value]) => ({ name, value })),
+    "No eval metrics.",
+  );
+  return `
+    <div class="section-title">Artifacts</div>
+    ${artifactTable}
+    <div class="section-title">Eval Metrics</div>
+    ${metricTable}
+    <div class="section-title">Manifest</div>
+    ${jsonBlock(report.run?.manifest || {})}
+  `;
 }
 
 async function runCompare() {
@@ -244,7 +330,9 @@ async function runCompare() {
     method: "POST",
     body: JSON.stringify({ base_path: base, target_path: target }),
   });
+  state.lastCompare = report;
   $("#compare-output").innerHTML = renderCompare(report);
+  openInspector("Compare Report", renderCompareDetail(report));
 }
 
 function renderCompare(report) {
@@ -280,11 +368,42 @@ function renderCompare(report) {
     (report.sources || []).filter((source) => source.status !== "unchanged"),
     "No source changes.",
   );
-  return `${summary}${changes}${sources}`;
+  const metrics = table(
+    [
+      { key: "name", label: "Metric" },
+      { key: "before", label: "Before", render: (row) => escapeHtml(row.before ?? "") },
+      { key: "after", label: "After", render: (row) => escapeHtml(row.after ?? "") },
+      { key: "delta", label: "Delta", render: (row) => pill(row.delta ?? 0) },
+    ],
+    report.metrics || [],
+    "No metric changes.",
+  );
+  return `
+    <div class="section-title">Summary</div>
+    ${summary}
+    <div class="section-title">Manifest Changes</div>
+    ${changes}
+    <div class="section-title">Source Changes</div>
+    ${sources}
+    <div class="section-title">Eval Metrics</div>
+    ${metrics}
+  `;
+}
+
+function renderCompareDetail(report) {
+  return `
+    <div class="trace-grid">
+      <div class="summary-cell"><span>Differences</span><strong>${escapeHtml(report.has_differences ? "yes" : "no")}</strong></div>
+      <div class="summary-cell"><span>Manifest changes</span><strong>${escapeHtml((report.changes || []).length)}</strong></div>
+      <div class="summary-cell"><span>Source changes</span><strong>${escapeHtml((report.sources || []).filter((source) => source.status !== "unchanged").length)}</strong></div>
+    </div>
+    ${jsonBlock(report)}
+  `;
 }
 
 async function loadProviders() {
   const providers = await api("/app/providers");
+  state.providers = providers;
   $("#providers-table").innerHTML = renderProviders(providers);
 }
 
@@ -319,10 +438,32 @@ document.addEventListener("click", (event) => {
   if (action === "refresh-dashboard") guarded(loadDashboard);
   if (action === "load-docs") guarded(loadDocuments);
   if (action === "run-search") guarded(runSearch);
+  if (action === "show-search-trace") {
+    if (state.lastSearch?.trace) openInspector("Search Trace", renderTrace(state.lastSearch));
+    else setNotice("Run a traced search before opening trace details.");
+  }
   if (action === "validate-app") guarded(validateApp);
   if (action === "run-app") guarded(runApp);
+  if (action === "show-run-detail") {
+    if (state.lastRun) openInspector("Run Report", renderRunDetail(state.lastRun));
+    else if (state.lastValidation) openInspector("Validation Report", jsonBlock(state.lastValidation));
+    else setNotice("Run or validate the app before opening details.");
+  }
   if (action === "run-compare") guarded(runCompare);
+  if (action === "show-compare-report") {
+    if (state.lastCompare) openInspector("Compare Report", renderCompareDetail(state.lastCompare));
+    else setNotice("Run a compare before opening the report.");
+  }
   if (action === "load-providers") guarded(loadProviders);
+  if (action === "show-provider-detail") {
+    if (state.providers) openInspector("Provider Readiness", jsonBlock(state.providers));
+    else setNotice("Load providers before opening details.");
+  }
+  if (action === "close-inspector") closeInspector();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeInspector();
 });
 
 guarded(loadHealth);

@@ -100,7 +100,10 @@
           <section class="panel">
             <div class="panel-header">
               <h2>Search Workbench</h2>
-              <button data-action="run-search">Run Query</button>
+              <div class="button-row">
+                <button class="ghost" data-action="show-search-trace">Trace</button>
+                <button data-action="run-search">Run Query</button>
+              </div>
             </div>
             <div class="form-grid">
               <label>
@@ -136,6 +139,7 @@
               <h2>App Run</h2>
               <div class="button-row">
                 <button class="ghost" data-action="validate-app">Validate</button>
+                <button class="ghost" data-action="show-run-detail">Details</button>
                 <button data-action="run-app">Run</button>
               </div>
             </div>
@@ -147,7 +151,10 @@
           <section class="panel">
             <div class="panel-header">
               <h2>Artifact Compare</h2>
-              <button data-action="run-compare">Compare</button>
+              <div class="button-row">
+                <button class="ghost" data-action="show-compare-report">Report JSON</button>
+                <button data-action="run-compare">Compare</button>
+              </div>
             </div>
             <div class="form-grid two">
               <label>
@@ -167,12 +174,25 @@
           <section class="panel">
             <div class="panel-header">
               <h2>Provider Boundary</h2>
-              <button data-action="load-providers">Refresh</button>
+              <div class="button-row">
+                <button class="ghost" data-action="show-provider-detail">Details</button>
+                <button data-action="load-providers">Refresh</button>
+              </div>
             </div>
             <div id="providers-table" class="table-host"></div>
           </section>
         </section>
       </main>
+      <aside class="inspector" id="inspector" aria-hidden="true">
+        <div class="inspector-header">
+          <div>
+            <div class="eyebrow">Inspector</div>
+            <h2 id="inspector-title">Details</h2>
+          </div>
+          <button class="ghost" data-action="close-inspector">Close</button>
+        </div>
+        <div class="inspector-body" id="inspector-body"></div>
+      </aside>
     </div>
     <script src="/ui/assets/console.js"></script>
   </body>
