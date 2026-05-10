@@ -1,6 +1,7 @@
 const state = {
   status: null,
   providers: null,
+  lastDocuments: [],
   lastCompare: null,
   lastRun: null,
   lastRunHistory: [],
@@ -61,9 +62,9 @@ function table(columns, rows, emptyText = "No data") {
   }
   const head = columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
   const body = rows
-    .map((row) => {
+    .map((row, index) => {
       const cells = columns
-        .map((column) => `<td>${column.render ? column.render(row) : escapeHtml(row[column.key])}</td>`)
+        .map((column) => `<td>${column.render ? column.render(row, index) : escapeHtml(row[column.key])}</td>`)
         .join("");
       return `<tr>${cells}</tr>`;
     })
@@ -172,8 +173,18 @@ function renderProviders(report) {
 
 async function loadDocuments() {
   const docs = await api("/app/docs", { method: "POST", body: JSON.stringify({}) });
+  state.lastDocuments = docs.items || [];
   $("#documents-table").innerHTML = table(
     [
+      {
+        key: "inspect",
+        label: "",
+        render: (_row, index) => `
+          <button class="ghost compact" data-action="show-document-detail" data-doc-index="${index}">
+            Inspect
+          </button>
+        `,
+      },
       { key: "status", label: "Status", render: (row) => pill(row.status) },
       { key: "source_uri", label: "Source" },
       { key: "source_type", label: "Type" },
@@ -182,8 +193,59 @@ async function loadDocuments() {
       { key: "indexed_hash", label: "Indexed Hash", render: (row) => `<code>${short(row.indexed_hash)}</code>` },
       { key: "reason", label: "Reason" },
     ],
-    docs.items || [],
+    state.lastDocuments,
   );
+}
+
+async function showDocumentDetail(index) {
+  const item = state.lastDocuments[Number(index)];
+  if (!item) {
+    setNotice("Document registry entry is no longer loaded.");
+    return;
+  }
+  let versions = [];
+  if (item.doc_id) {
+    const response = await api(
+      `/collections/${encodeURIComponent(collectionName())}/documents/${encodeURIComponent(item.doc_id)}/versions?include_inactive=true`,
+    );
+    versions = response.versions || [];
+  }
+  openInspector("Document Detail", renderDocumentDetail(item, versions));
+}
+
+function renderDocumentDetail(item, versions) {
+  const fields = [
+    ["Status", item.status],
+    ["Reason", item.reason],
+    ["Source URI", item.source_uri],
+    ["Source type", item.source_type],
+    ["Bytes", item.bytes],
+    ["Doc ID", item.doc_id],
+    ["Version ID", item.version_id],
+    ["Indexed", item.indexed ? "yes" : "no"],
+    ["Active", item.active ? "yes" : "no"],
+    ["Source hash", item.content_hash],
+    ["Indexed hash", item.indexed_hash],
+  ];
+  const versionTable = table(
+    [
+      { key: "version_id", label: "Version ID", render: (row) => `<code>${escapeHtml(row.version_id)}</code>` },
+      { key: "content_hash", label: "Hash", render: (row) => `<code>${short(row.content_hash)}</code>` },
+      { key: "is_latest", label: "Latest", render: (row) => pill(row.is_latest ? "yes" : "no") },
+      { key: "is_active", label: "Active", render: (row) => pill(row.is_active ? "yes" : "no") },
+      { key: "created_at", label: "Created" },
+    ],
+    versions,
+    item.doc_id ? "No versions returned." : "Document has not been indexed yet.",
+  );
+  return `
+    <div class="section-title">Registry</div>
+    <dl class="definition-list">${definitionList(fields)}</dl>
+    <div class="section-title">Versions</div>
+    ${versionTable}
+    <div class="section-title">Raw Registry Item</div>
+    ${jsonBlock(item)}
+  `;
 }
 
 async function runSearch() {
@@ -541,6 +603,9 @@ document.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (action === "refresh-dashboard") guarded(loadDashboard);
   if (action === "load-docs") guarded(loadDocuments);
+  if (action === "show-document-detail") {
+    guarded(() => showDocumentDetail(event.target.dataset.docIndex));
+  }
   if (action === "run-search") guarded(runSearch);
   if (action === "show-search-trace") {
     if (state.lastSearch?.trace) openInspector("Search Trace", renderTrace(state.lastSearch));

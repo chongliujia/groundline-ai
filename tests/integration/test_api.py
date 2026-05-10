@@ -31,6 +31,7 @@ def test_api_smoke_flow(tmp_path: Path, monkeypatch) -> None:
     assert ui_asset.status_code == 200
     assert "loadDashboard" in ui_asset.text
     assert "openInspector" in ui_asset.text
+    assert "showDocumentDetail" in ui_asset.text
     assert "loadRunHistory" in ui_asset.text
     assert "loadSettings" in ui_asset.text
 
